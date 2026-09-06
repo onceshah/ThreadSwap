@@ -137,6 +137,6 @@ public class AuthServiceImpl implements AuthService {
 
         userSessionRepository.save(session);
 
-        return new JwtResponse(accessToken, refreshToken, user.getId(), user.getEmail(), roleName);
+        return new JwtResponse(accessToken, refreshToken, user.getId(), user.getEmail(), roleName, user.getFirstName(), user.getLastName());
     }
 }

@@ -109,17 +109,37 @@ public class ProductServiceImpl implements ProductService {
 
     @Override
     @Transactional
-    public void deleteProduct(String id) {
+    public boolean deleteProduct(String id, String sellerHandle) {
+        Product p = null;
         try {
             UUID uuid = UUID.fromString(id);
-            productRepository.deleteById(uuid);
+            p = productRepository.findById(uuid).orElse(null);
         } catch (Exception e) {
-            // Check if matches by title or fallback
-            productRepository.findAll().stream()
-                    .filter(p -> p.getId().toString().equalsIgnoreCase(id) || p.getTitle().equalsIgnoreCase(id))
-                    .findFirst()
-                    .ifPresent(productRepository::delete);
+            p = productRepository.findAll().stream()
+                    .filter(x -> x.getId().toString().equalsIgnoreCase(id) || x.getTitle().equalsIgnoreCase(id))
+                    .findFirst().orElse(null);
         }
+
+        if (p == null) {
+            return true; // Product already gone or deleted
+        }
+
+        if (sellerHandle != null && !sellerHandle.isBlank()) {
+            String cleanReq = sellerHandle.trim().toLowerCase().replaceAll("^@", "");
+            String sName = p.getSellerName() != null ? p.getSellerName().trim().toLowerCase().replaceAll("^@", "") : "";
+            String sEmail = p.getSellerEmail() != null ? p.getSellerEmail().trim().toLowerCase() : "";
+
+            boolean matchesName = !sName.isEmpty() && (cleanReq.contains(sName) || sName.contains(cleanReq));
+            boolean matchesEmail = !sEmail.isEmpty() && (cleanReq.equalsIgnoreCase(sEmail) || sEmail.startsWith(cleanReq));
+            boolean noSellerInfo = sName.isEmpty() && sEmail.isEmpty();
+
+            if (!matchesName && !matchesEmail && !noSellerInfo) {
+                return false; // Forbidden: Requester is not the seller of this item
+            }
+        }
+
+        productRepository.delete(p);
+        return true;
     }
 
     @Override

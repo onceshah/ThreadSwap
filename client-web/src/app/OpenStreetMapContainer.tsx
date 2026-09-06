@@ -16,14 +16,7 @@ export interface MapProduct {
   location?: string;
 }
 
-export const defaultMapProducts: MapProduct[] = [
-  { id: 1, name: "Levi's 501 Jeans", seller: "Meera K.", price: 899, lat: 19.1363, lng: 72.8277, image: "https://images.unsplash.com/photo-1542272604-787c3835535d?w=200&h=200&fit=crop&auto=format", condition: "Gently Used", type: "Sell", distance: "1.2 km", location: "Andheri West, Mumbai" },
-  { id: 2, name: "Vintage Floral Kurta", seller: "Aarti S.", price: 450, lat: 19.0596, lng: 72.8295, image: "https://images.unsplash.com/photo-1583391733956-6c78276477e2?w=200&h=200&fit=crop&auto=format", condition: "Well Worn", type: "Exchange", distance: "0.8 km", location: "Bandra West, Mumbai" },
-  { id: 3, name: "Nike Air Max 90", seller: "Rohan D.", price: 1800, lat: 19.1075, lng: 72.8263, image: "https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=200&h=200&fit=crop&auto=format", condition: "Gently Used", type: "Sell", distance: "2.4 km", location: "Juhu, Mumbai" },
-  { id: 4, name: "Handwoven Tote Bag", seller: "Priti V.", price: 0, lat: 19.1176, lng: 72.9060, image: "https://images.unsplash.com/photo-1548036328-c9fa89d128fa?w=200&h=200&fit=crop&auto=format", condition: "Gently Used", type: "Free/Donate", distance: "3.1 km", location: "Powai, Mumbai" },
-  { id: 5, name: "Oversized Linen Blazer", seller: "Kavita R.", price: 1200, lat: 19.0700, lng: 72.8338, image: "https://images.unsplash.com/photo-1591047139829-d91aecb6caea?w=200&h=200&fit=crop&auto=format", condition: "Brand New", type: "Sell", distance: "1.8 km", location: "Khar West, Mumbai" },
-  { id: 6, name: "Wool Blend Overcoat", seller: "Ananya R.", price: 2200, lat: 19.0176, lng: 72.8170, image: "https://images.unsplash.com/photo-1539533018447-63fcce2678e3?w=200&h=200&fit=crop&auto=format", condition: "Brand New", type: "Sell", distance: "3.5 km", location: "Worli, Mumbai" },
-];
+export const defaultMapProducts: MapProduct[] = [];
 
 const knownMumbaiLocations: Record<string, [number, number]> = {
   "Andheri West, Mumbai": [19.1363, 72.8277],

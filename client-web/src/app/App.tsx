@@ -5,13 +5,13 @@ import {
   ChevronRight, ChevronLeft, Star, MapPin, Package,
   CheckCircle, ArrowRight, X, Plus, Minus,
   Bell, LogOut, Camera, SlidersHorizontal,
-  RefreshCw, Leaf, Map, Grid3X3,
+  RefreshCw, Leaf, Map as MapIcon, Grid3X3,
   Send, Image as ImageIcon, Zap, RotateCcw, Moon, Sun,
   Shield, HelpCircle, ChevronDown, Upload, Eye, EyeOff,
   AlertCircle, Menu, ExternalLink, TrendingUp, Recycle, MessageSquare, Repeat,
   Trash2, Edit3, Check, Tag, Award, Clock, Sparkles
 } from "lucide-react";
-import { fetchProductsFromBackend, loginBackend, registerBackend, createListingBackend, delistProductBackend, updateProductStatusBackend, fetchChatMessagesBackend, sendChatMessageBackend, fetchUserChatThreadsBackend, clearAllChatMessagesBackend, getCleanUserHandle, buildThreadKey, aiSemanticSearchBackend } from "./api";
+import { fetchProductsFromBackend, loginBackend, registerBackend, createListingBackend, delistProductBackend, updateProductStatusBackend, fetchChatMessagesBackend, sendChatMessageBackend, fetchUserChatThreadsBackend, deleteThreadBackend, clearAllChatMessagesBackend, getCleanUserHandle, buildThreadKey, aiSemanticSearchBackend } from "./api";
 import OpenStreetMapContainer, { defaultMapProducts, MapProduct } from "./OpenStreetMapContainer";
 import CameraUploadModal from "./CameraUploadModal";
 
@@ -40,17 +40,9 @@ interface Review {
 
 // ─── data ─────────────────────────────────────────────────────────────────────
 
-const initialProducts: Product[] = defaultMapProducts;
+const initialProducts: Product[] = [];
 
-const mockReviews: Record<string, Review[]> = {
-  "Meera K.": [
-    { id: 1, reviewer: "Priya S.", avatar: "PS", rating: 5, date: "2 days ago", comment: "Super fast handoff in Andheri! The jeans were exactly as described." },
-    { id: 2, reviewer: "Rohan D.", avatar: "RD", rating: 4.5, date: "1 week ago", comment: "Great seller, very responsive and friendly." }
-  ],
-  "Rohan D.": [
-    { id: 1, reviewer: "Aarti S.", avatar: "AS", rating: 5, date: "3 days ago", comment: "Awesome sneakers! 100% authentic deal." }
-  ]
-};
+const mockReviews: Record<string, Review[]> = {};
 
 const initialThreads: ChatThread[] = [];
 
@@ -104,7 +96,7 @@ function TopNav({ page, onNav, darkMode, onToggleDark, unread, authUser, onLogou
             Discover
           </button>
           <button onClick={() => onNav("map", "map")} className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-semibold transition-all ${page === "map" ? "bg-primary text-primary-foreground shadow-xs" : "bg-muted/70 text-foreground hover:bg-muted"}`} style={{ fontFamily: "'Inter'" }}>
-            <Map size={15} className={page === "map" ? "text-white" : "text-primary"} />
+            <MapIcon size={15} className={page === "map" ? "text-white" : "text-primary"} />
             <span>OsmDroid Map</span>
           </button>
           <button onClick={() => onNav("inbox")} className={`px-3.5 py-2 rounded-xl text-sm font-semibold transition-all relative flex items-center gap-1.5 ${page === "inbox" || page === "chat" ? "bg-primary text-primary-foreground shadow-xs" : "text-muted-foreground hover:text-foreground hover:bg-muted"}`} style={{ fontFamily: "'Inter'" }}>
@@ -355,7 +347,10 @@ function ProductDetailModal({ product, onClose, onStartChat, onViewSellerProfile
   const sellerHandle = getCleanUserHandle(product.seller || '').toLowerCase();
   const sellerEmail = (product.sellerEmail || '').toLowerCase();
   const userEmail = (authUser?.email || '').toLowerCase();
-  const isOwnItem = (currentHandle && sellerHandle && currentHandle === sellerHandle) || (userEmail && sellerEmail && userEmail === sellerEmail);
+  const isOwnItem = (currentHandle && sellerHandle && (currentHandle === sellerHandle || currentHandle.includes(sellerHandle) || sellerHandle.includes(currentHandle))) || 
+                    (userEmail && sellerEmail && userEmail === sellerEmail) ||
+                    (userEmail && product.seller && userEmail.toLowerCase().startsWith(product.seller.toLowerCase())) ||
+                    (sellerEmail && authUser?.name && sellerEmail.toLowerCase().startsWith(authUser.name.toLowerCase()));
 
   const handleDelist = () => {
     if (window.confirm(`Are you sure you want to delist "${product.name}"? It will be removed from the marketplace and map.`)) {
@@ -576,7 +571,7 @@ function HomePage({ productsList, onNav, onClickProduct }: { productsList: Produ
                 Browse Items <ArrowRight size={16} />
               </button>
               <button onClick={() => onNav("map", "map")} style={{ fontFamily: "'Plus Jakarta Sans'", fontWeight: 700 }} className="px-7 py-3.5 bg-white/15 backdrop-blur-sm border border-white/30 text-white rounded-xl text-sm uppercase tracking-widest hover:bg-white/25 transition-colors flex items-center gap-2">
-                <Map size={16} /> Explore OsmDroid Map
+                <MapIcon size={16} /> Explore OsmDroid Map
               </button>
             </div>
           </div>
@@ -808,7 +803,7 @@ function DiscoverPage({ productsList, initialView = "grid", onClickProduct }: { 
           {/* Grid / Map Toggle Button */}
           <div className="flex items-center gap-1 bg-muted rounded-xl p-1">
             <button onClick={() => setView("grid")} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${view === "grid" ? "bg-card text-primary shadow-sm" : "text-muted-foreground"}`} style={{ fontFamily: "'Inter'" }}><Grid3X3 size={13} /> Grid</button>
-            <button onClick={() => setView("map")} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${view === "map" ? "bg-card text-primary shadow-sm" : "text-muted-foreground"}`} style={{ fontFamily: "'Inter'" }}><Map size={13} /> OsmDroid Map</button>
+            <button onClick={() => setView("map")} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${view === "map" ? "bg-card text-primary shadow-sm" : "text-muted-foreground"}`} style={{ fontFamily: "'Inter'" }}><MapIcon size={13} /> OsmDroid Map</button>
           </div>
 
           <select value={sort} onChange={e => setSort(e.target.value)} className="bg-muted border-none rounded-xl px-3 py-2 text-sm text-foreground outline-none cursor-pointer font-bold" style={{ fontFamily: "'Inter'" }}>
@@ -1198,17 +1193,9 @@ function InboxPage({ activeTargetSeller, activeTargetProduct, onViewSellerProfil
 
   const getDeletedTimestamps = (): Record<string, number> => {
     try {
+      localStorage.removeItem(`deletedThreadKeys_${currentHandle}`);
       const stored = localStorage.getItem(`deletedThreadAt_${currentHandle}`);
       if (stored) return JSON.parse(stored);
-      const oldKeys = localStorage.getItem(`deletedThreadKeys_${currentHandle}`);
-      if (oldKeys) {
-        const keysArr: string[] = JSON.parse(oldKeys);
-        const map: Record<string, number> = {};
-        for (const k of keysArr) map[k.toLowerCase()] = Date.now();
-        localStorage.setItem(`deletedThreadAt_${currentHandle}`, JSON.stringify(map));
-        localStorage.removeItem(`deletedThreadKeys_${currentHandle}`);
-        return map;
-      }
     } catch {}
     return {};
   };
@@ -1220,22 +1207,23 @@ function InboxPage({ activeTargetSeller, activeTargetProduct, onViewSellerProfil
       if (stored) {
         const parsed = JSON.parse(stored);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          base = parsed.filter((p: any) => p.name && p.name.toLowerCase() !== currentHandle);
+          const testNames = ['meera k.', 'rohan d.', 'aarti s.', 'priti v.'];
+          base = parsed.filter((p: any) => p.name && p.name.toLowerCase() !== currentHandle && !testNames.includes(p.name.toLowerCase()));
         }
       }
     } catch {}
 
-    if (cleanSellerName && activeTargetProduct && cleanSellerName.toLowerCase() !== currentHandle) {
+    if (cleanSellerName && cleanSellerName.toLowerCase() !== currentHandle) {
       const existing = base.find(t => t.name.toLowerCase() === cleanSellerName.toLowerCase());
       if (!existing) {
         const newThread: ChatThread = {
           id: computeStableId(cleanSellerName),
           name: cleanSellerName,
           avatar: cleanSellerName.slice(0, 2).toUpperCase(),
-          productThumb: activeTargetProduct.image,
-          productTitle: activeTargetProduct.name,
-          productPrice: activeTargetProduct.price,
-          lastMsg: `Hi, I'm interested in your ${activeTargetProduct.name}!`,
+          productThumb: activeTargetProduct?.image || 'https://images.unsplash.com/photo-1591047139829-d91aecb6caea?w=200&h=200&fit=crop&auto=format',
+          productTitle: activeTargetProduct?.name || 'ThreadSwap Item',
+          productPrice: activeTargetProduct?.price || 1500,
+          lastMsg: activeTargetProduct ? `Hi, I'm interested in your ${activeTargetProduct.name}!` : 'Start a conversation...',
           time: 'Just now',
           unread: 0
         };
@@ -1248,17 +1236,17 @@ function InboxPage({ activeTargetSeller, activeTargetProduct, onViewSellerProfil
   });
 
   const [activeThread, setActiveThread] = useState<ChatThread>(() => {
-    if (cleanSellerName && activeTargetProduct && cleanSellerName.toLowerCase() !== currentHandle) {
+    if (cleanSellerName && cleanSellerName.toLowerCase() !== currentHandle) {
       const match = threads.find(t => t.name.toLowerCase() === cleanSellerName.toLowerCase());
       if (match) return match;
       return {
         id: computeStableId(cleanSellerName),
         name: cleanSellerName,
         avatar: cleanSellerName.slice(0, 2).toUpperCase(),
-        productThumb: activeTargetProduct.image,
-        productTitle: activeTargetProduct.name,
-        productPrice: activeTargetProduct.price,
-        lastMsg: `Hi, I'm interested in your ${activeTargetProduct.name}!`,
+        productThumb: activeTargetProduct?.image || 'https://images.unsplash.com/photo-1591047139829-d91aecb6caea?w=200&h=200&fit=crop&auto=format',
+        productTitle: activeTargetProduct?.name || 'ThreadSwap Item',
+        productPrice: activeTargetProduct?.price || 1500,
+        lastMsg: activeTargetProduct ? `Hi, I'm interested in your ${activeTargetProduct.name}!` : 'Start a conversation...',
         time: 'Just now',
         unread: 0
       };
@@ -1318,17 +1306,23 @@ function InboxPage({ activeTargetSeller, activeTargetProduct, onViewSellerProfil
     ));
   }, [resolvedActiveThread.name, currentHandle]);
 
+  // Ref to track active thread name without triggering effect re-runs
+  const activeThreadNameRef = useRef('');
+  activeThreadNameRef.current = resolvedActiveThread.name;
+
   // Fetch user's persistent chat threads from MongoDB Atlas on load & poll
   useEffect(() => {
     if (!authUser?.name && !authUser?.email) return;
     let active = true;
     async function loadUserThreads() {
-      const deletedTimestamps = getDeletedTimestamps();
-
       const storedReadTimestamps = localStorage.getItem(`readLastMsgTimestamp_${currentHandle}`);
       const readTimestamps: Record<string, number> = storedReadTimestamps ? JSON.parse(storedReadTimestamps) : {};
 
+      const storedDelTimes = localStorage.getItem(`deletedThreadAt_${currentHandle}`);
+      const delTimes: Record<string, number> = storedDelTimes ? JSON.parse(storedDelTimes) : {};
+
       const msgs = await fetchUserChatThreadsBackend(authUser.name || '', authUser.email || '');
+      console.log('[Chat] threads fetch:', msgs?.length, 'msgs for handle:', currentHandle);
       if (!active || !msgs || !Array.isArray(msgs)) return;
 
       const latestMsgsByPartner = new Map<string, {
@@ -1351,14 +1345,21 @@ function InboxPage({ activeTargetSeller, activeTargetProduct, onViewSellerProfil
         const p1 = getCleanUserHandle(parts[0]);
         const p2 = getCleanUserHandle(parts[1]);
 
-        const partnerHandle = (p1.toLowerCase() !== currentHandle) ? p1 : p2;
+        const p1Clean = p1.toLowerCase();
+        const p2Clean = p2.toLowerCase();
+
+        // Privacy Guard: current user must be one of the thread participants (substring match)
+        const isP1Me = p1Clean === currentHandle || p1Clean.includes(currentHandle) || currentHandle.includes(p1Clean);
+        const isP2Me = p2Clean === currentHandle || p2Clean.includes(currentHandle) || currentHandle.includes(p2Clean);
+        if (!isP1Me && !isP2Me) continue;
+
+        const partnerHandle = !isP1Me ? p1 : p2;
         if (partnerHandle.toLowerCase() === currentHandle) continue;
 
         const key = partnerHandle.toLowerCase();
-
         const msgTime = m.sentAt ? new Date(m.sentAt).getTime() : Date.now();
-        const delTime = deletedTimestamps[key] || 0;
-        if (msgTime <= delTime) continue; // Skip messages deleted prior to deletion timestamp
+        const delTime = delTimes[key] || 0;
+        if (msgTime <= delTime) continue;
 
         const senderHandle = getCleanUserHandle(m.senderName).toLowerCase();
 
@@ -1380,7 +1381,7 @@ function InboxPage({ activeTargetSeller, activeTargetProduct, onViewSellerProfil
       for (const [key, data] of latestMsgsByPartner.entries()) {
         const isFromPartner = data.lastSenderHandle !== currentHandle;
         const lastReadTime = readTimestamps[key] || 0;
-        const isActive = resolvedActiveThread.name && getCleanUserHandle(resolvedActiveThread.name).toLowerCase() === key;
+        const isActive = activeThreadNameRef.current && getCleanUserHandle(activeThreadNameRef.current).toLowerCase() === key;
         
         const isUnread = !isActive && isFromPartner && (data.lastMsgSentAt > lastReadTime + 1000);
 
@@ -1398,48 +1399,46 @@ function InboxPage({ activeTargetSeller, activeTargetProduct, onViewSellerProfil
         } as any);
       }
 
-      setThreads(prev => {
-        const prevMap = new Map(prev.map(p => [getCleanUserHandle(p.name).toLowerCase(), p]));
-
-        for (const f of fetchedThreads) {
-          const key = f.name.toLowerCase();
-          prevMap.set(key, f);
+      fetchedThreads.sort((a: any, b: any) => {
+        if ((b.unread || 0) !== (a.unread || 0)) {
+          return (b.unread || 0) - (a.unread || 0);
         }
-
-        const combined = Array.from(prevMap.values()).filter(p => {
-          const key = p.name.toLowerCase();
-          if (key === currentHandle) return false;
-          const delTime = deletedTimestamps[key] || 0;
-          const msgTime = (p as any).lastMsgSentAt || 0;
-          return msgTime > delTime || delTime === 0;
-        });
-        
-        combined.sort((a: any, b: any) => {
-          if ((b.unread || 0) !== (a.unread || 0)) {
-            return (b.unread || 0) - (a.unread || 0);
-          }
-          return (b.lastMsgSentAt || 0) - (a.lastMsgSentAt || 0);
-        });
-
-        try { localStorage.setItem(`localUserThreads_${currentHandle}`, JSON.stringify(combined)); } catch {}
-        return combined;
+        return (b.lastMsgSentAt || 0) - (a.lastMsgSentAt || 0);
       });
 
-      // Automatically set activeThread to top valid thread if none selected
-      if (fetchedThreads.length > 0 && (!resolvedActiveThread.name || resolvedActiveThread.id === 0)) {
-        setActiveThread(fetchedThreads[0]);
+      console.log('[Chat] built threads:', fetchedThreads.length, fetchedThreads.map((t: any) => t.name));
+      try { localStorage.setItem(`localUserThreads_${currentHandle}`, JSON.stringify(fetchedThreads)); } catch {}
+      setThreads(fetchedThreads);
+
+      // Auto-select the top thread only if nothing is currently selected
+      // Use setTimeout to defer state update so it doesn't cancel this effect run
+      if (fetchedThreads.length > 0) {
+        const activeNow = activeThreadNameRef.current;
+        const hasValidActive = activeNow && fetchedThreads.some(t => t.name.toLowerCase() === activeNow.toLowerCase());
+        if (!hasValidActive && !cleanSellerName) {
+          setTimeout(() => { if (active) setActiveThread(fetchedThreads[0]); }, 0);
+        }
       }
     }
 
     loadUserThreads();
     const interval = setInterval(loadUserThreads, 3000);
     return () => { active = false; clearInterval(interval); };
-  }, [authUser, currentHandle, resolvedActiveThread.name]);
+  }, [authUser, currentHandle]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleDeleteThread = (threadId: number, partnerName: string) => {
     if (!window.confirm(`Delete chat conversation with "${partnerName}"?`)) return;
 
     const cleanPartner = getCleanUserHandle(partnerName).toLowerCase();
+
+    // Permanently remove from backend database
+    deleteThreadBackend(currentHandle, cleanPartner);
+    if (authUser?.name) {
+      deleteThreadBackend(authUser.name, cleanPartner);
+    }
+    if (authUser?.email) {
+      deleteThreadBackend(authUser.email, cleanPartner);
+    }
 
     try {
       const stored = localStorage.getItem(`deletedThreadAt_${currentHandle}`);
@@ -1528,13 +1527,13 @@ function InboxPage({ activeTargetSeller, activeTargetProduct, onViewSellerProfil
     async function syncBackendMessages() {
       const msgs = await fetchChatMessagesBackend(threadKey, getCleanUserHandle(userA), getCleanUserHandle(userB));
       if (!active) return;
-      if (msgs && Array.isArray(msgs) && msgs.length > 0) {
-        const myHandle = getCleanUserHandle(authUser?.name || authUser?.email).toLowerCase();
+      if (msgs && Array.isArray(msgs)) {
         const validMsgs = msgs.filter((m: any) => {
           const msgTime = m.sentAt ? new Date(m.sentAt).getTime() : Date.now();
           return msgTime > delTime;
         });
 
+        const myHandle = getCleanUserHandle(authUser?.name || authUser?.email).toLowerCase();
         const formatted = validMsgs.map((m: any, idx: number) => {
           const senderHandle = getCleanUserHandle(m.senderName).toLowerCase();
           const isMe = senderHandle === myHandle;
@@ -1548,19 +1547,11 @@ function InboxPage({ activeTargetSeller, activeTargetProduct, onViewSellerProfil
         });
 
         setMessagesByThread(prev => {
-          const existing = prev[targetId] || prev[resolvedActiveThread.id] || [];
-          const existingTexts = new Set(existing.map(e => e.text.trim()));
-          const newFromBackend = formatted.filter(f => !existingTexts.has(f.text.trim()));
-
-          if (newFromBackend.length === 0 && existing.length > 0) {
-            return prev;
-          }
-
-          const merged = [...existing, ...newFromBackend];
           const next = {
             ...prev,
-            [targetId]: merged,
-            [resolvedActiveThread.id]: merged
+            [targetId]: formatted,
+            [partnerClean]: formatted,
+            [resolvedActiveThread.id]: formatted
           };
           try { localStorage.setItem(`localChatCache_${currentHandle}`, JSON.stringify(next)); } catch {}
           return next;
@@ -1578,10 +1569,16 @@ function InboxPage({ activeTargetSeller, activeTargetProduct, onViewSellerProfil
 
   const send = async () => {
     if (!input.trim()) return;
+    const rawTargetName = resolvedActiveThread.name || cleanSellerName;
+    const userB = getCleanUserHandle(rawTargetName);
+    if (!userB || userB === 'Guest' || userB === 'Seller' || userB.toLowerCase() === currentHandle) {
+      alert("Please select a valid user to send a message.");
+      return;
+    }
+
     const msgText = input.trim();
     setInput("");
-    const currentUserName = authUser?.name || authUser?.email || 'Guest User';
-    const userB = resolvedActiveThread.name || 'Seller';
+    const currentUserName = authUser?.name || authUser?.email || 'User';
     const threadKey = buildThreadKey(currentUserName, userB);
     const senderDisplayName = getCleanUserHandle(currentUserName);
 
@@ -1843,10 +1840,7 @@ function ProfilePage({
   const [newAddr, setNewAddr] = useState({ type: "Home", name: displayName, addressLine: "", area: "", city: "Mumbai", state: "Maharashtra", pincode: "", phone: "" });
 
   // Purchases list
-  const [purchases, setPurchases] = useState([
-    { id: "ORD-9482", title: "Levi's 501 Jeans", seller: "Meera K.", price: 899, date: "Yesterday, 4:20 PM", status: "Delivered", image: "https://images.unsplash.com/photo-1542272604-787c3835535d?w=120&h=120&fit=crop&auto=format" },
-    { id: "ORD-8931", title: "Handwoven Tote Bag", seller: "Priti V.", price: 0, date: "18 Aug 2026", status: "Completed (Donation)", image: "https://images.unsplash.com/photo-1548036328-c9fa89d128fa?w=120&h=120&fit=crop&auto=format" },
-  ]);
+  const [purchases, setPurchases] = useState<any[]>([]);
 
   // Sold status tracking for user items
   const [soldItemIds, setSoldItemIds] = useState<number[]>([]);
@@ -2007,7 +2001,7 @@ function ProfilePage({
                 onClick={() => onNav("map", "map")}
                 className="w-full py-3 bg-card border border-border text-foreground rounded-2xl text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 hover:bg-muted transition-colors"
               >
-                <Map size={15} className="text-primary" /> View OsmDroid Map
+                <MapIcon size={15} className="text-primary" /> View OsmDroid Map
               </button>
             </div>
           </aside>
@@ -2097,6 +2091,18 @@ function ProfilePage({
 
                           <button
                             onClick={() => {
+                              const currentHandle = getCleanUserHandle(authUser?.name || authUser?.email || '').toLowerCase();
+                              const sellerHandle = getCleanUserHandle(p.seller || '').toLowerCase();
+                              const sellerEmail = (p.sellerEmail || '').toLowerCase();
+                              const userEmail = (authUser?.email || '').toLowerCase();
+                              const isSeller = (!currentHandle && !userEmail) ? false :
+                                (currentHandle && sellerHandle && currentHandle === sellerHandle) ||
+                                (userEmail && sellerEmail && userEmail === sellerEmail);
+
+                              if (!isSeller) {
+                                alert(`Permission Denied: Only ${p.seller || 'the seller who published this item'} can delist it.`);
+                                return;
+                              }
                               if (window.confirm(`Are you sure you want to delist "${p.name}"? It will be removed immediately.`)) {
                                 onDelistProduct(p.id);
                               }
@@ -2420,14 +2426,21 @@ export default function App() {
         const p1 = getCleanUserHandle(parts[0]);
         const p2 = getCleanUserHandle(parts[1]);
 
-        const partnerHandle = (p1.toLowerCase() !== currentHandle) ? p1 : p2;
+        const p1Clean = p1.toLowerCase();
+        const p2Clean = p2.toLowerCase();
+
+        // Privacy Guard: current user must be one of the thread participants (substring match)
+        const isP1Me = p1Clean === currentHandle || p1Clean.includes(currentHandle) || currentHandle.includes(p1Clean);
+        const isP2Me = p2Clean === currentHandle || p2Clean.includes(currentHandle) || currentHandle.includes(p2Clean);
+        if (!isP1Me && !isP2Me) continue;
+
+        const partnerHandle = !isP1Me ? p1 : p2;
         if (partnerHandle.toLowerCase() === currentHandle) continue;
 
         const key = partnerHandle.toLowerCase();
-
         const msgTime = m.sentAt ? new Date(m.sentAt).getTime() : Date.now();
         const delTime = delTimes[key] || 0;
-        if (msgTime <= delTime) continue; // Skip messages deleted prior to deletion timestamp
+        if (msgTime <= delTime) continue;
 
         const senderHandle = getCleanUserHandle(m.senderName).toLowerCase();
 
@@ -2508,6 +2521,10 @@ export default function App() {
         return;
       }
     }
+    if (p === "inbox" || p === "discover" || p === "home" || p === "profile" || p === "map") {
+      setChatTargetSeller(null);
+      setChatTargetProduct(null);
+    }
     if (mode === "map") {
       setDiscoverInitialView("map");
       setPage("discover");
@@ -2522,12 +2539,21 @@ export default function App() {
   };
 
   const handleLogin = (user: { name: string; email: string }) => {
+    const handle = getCleanUserHandle(user.name || user.email).toLowerCase();
+    setChatTargetSeller(null);
+    setChatTargetProduct(null);
+    try {
+      localStorage.removeItem(`deletedThreadAt_${handle}`);
+      localStorage.removeItem(`deletedThreadKeys_${handle}`);
+    } catch {}
     setAuthUser(user);
     localStorage.setItem('authUser', JSON.stringify(user));
   };
 
   const handleLogout = () => {
     setAuthUser(null);
+    setChatTargetSeller(null);
+    setChatTargetProduct(null);
     localStorage.removeItem('authUser');
     localStorage.removeItem('token');
     goNav("home");
@@ -2572,7 +2598,27 @@ export default function App() {
     const targetItem = productsList.find(p => p.id === id || String(p.id) === String(id));
     const targetName = targetItem?.name ? String(targetItem.name).toLowerCase().trim() : '';
 
-    await delistProductBackend(id);
+    const currentHandle = getCleanUserHandle(authUser?.name || authUser?.email || '').toLowerCase();
+    const sellerHandle = getCleanUserHandle(targetItem?.seller || '').toLowerCase();
+    const sellerEmail = (targetItem?.sellerEmail || '').toLowerCase();
+    const userEmail = (authUser?.email || '').toLowerCase();
+
+    const isSeller = targetItem ? (
+      (!currentHandle && !userEmail) ? false :
+      (currentHandle && sellerHandle && currentHandle === sellerHandle) ||
+      (userEmail && sellerEmail && userEmail === sellerEmail)
+    ) : true;
+
+    if (!isSeller) {
+      alert(`Permission Denied: Only ${targetItem?.seller || 'the seller who published this item'} can delist it.`);
+      return;
+    }
+
+    const success = await delistProductBackend(id, currentHandle || userEmail);
+    if (!success) {
+      alert("Permission Denied: Only the seller who published this item can delist it.");
+      return;
+    }
 
     setProductsList(prev => prev.filter(p => p.id !== id && String(p.id) !== String(id) && (targetName ? String(p.name).toLowerCase().trim() !== targetName : true)));
 
@@ -2638,6 +2684,7 @@ export default function App() {
         if (!authUser) return <LoginPage onDone={() => goNav("home")} onLogin={handleLogin} />;
         return (
           <InboxPage
+            key={authUser?.email || authUser?.name || 'inbox'}
             activeTargetSeller={chatTargetSeller || undefined}
             activeTargetProduct={chatTargetProduct || undefined}
             onViewSellerProfile={handleViewSellerProfile}

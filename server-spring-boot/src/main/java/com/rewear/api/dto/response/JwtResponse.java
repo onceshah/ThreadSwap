@@ -8,13 +8,17 @@ public class JwtResponse {
     private UUID userId;
     private String email;
     private String role;
+    private String firstName;
+    private String lastName;
 
-    public JwtResponse(String accessToken, String refreshToken, UUID userId, String email, String role) {
+    public JwtResponse(String accessToken, String refreshToken, UUID userId, String email, String role, String firstName, String lastName) {
         this.accessToken = accessToken;
         this.refreshToken = refreshToken;
         this.userId = userId;
         this.email = email;
         this.role = role;
+        this.firstName = firstName;
+        this.lastName = lastName;
     }
 
     public String getAccessToken() { return accessToken; }
@@ -31,4 +35,10 @@ public class JwtResponse {
 
     public String getRole() { return role; }
     public void setRole(String role) { this.role = role; }
+
+    public String getFirstName() { return firstName; }
+    public void setFirstName(String firstName) { this.firstName = firstName; }
+
+    public String getLastName() { return lastName; }
+    public void setLastName(String lastName) { this.lastName = lastName; }
 }

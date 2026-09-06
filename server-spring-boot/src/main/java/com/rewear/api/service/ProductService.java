@@ -9,6 +9,6 @@ public interface ProductService {
     ProductResponseDto createProduct(ProductRequestDto request, UUID sellerId);
     List<ProductResponseDto> getNearbyProducts(double latitude, double longitude, double radiusKm);
     List<ProductResponseDto> getAllProducts();
-    void deleteProduct(String id);
+    boolean deleteProduct(String id, String sellerHandle);
     ProductResponseDto updateProductStatus(String id, String status);
 }

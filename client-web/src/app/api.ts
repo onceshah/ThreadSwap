@@ -69,14 +69,14 @@ export async function loginBackend(email: string, pass: string): Promise<{ acces
   const data = await res.json();
   if (data.accessToken) {
     localStorage.setItem('token', data.accessToken);
-    // Decode JWT payload to grab user details (no library needed)
-    try {
-      const payload = JSON.parse(atob(data.accessToken.split('.')[1]));
-      localStorage.setItem('authUser', JSON.stringify({
-        name: [payload.firstName, payload.lastName].filter(Boolean).join(' ') || payload.sub || email,
-        email: payload.sub || email
-      }));
-    } catch { localStorage.setItem('authUser', JSON.stringify({ name: email, email })); }
+    // Use firstName/lastName directly from the response body (more reliable than JWT decode)
+    const firstName = data.firstName || '';
+    const lastName = data.lastName || '';
+    const displayName = [firstName, lastName].filter(Boolean).join(' ') || email;
+    localStorage.setItem('authUser', JSON.stringify({
+      name: displayName,
+      email: data.email || email
+    }));
   }
   return data;
 }
@@ -152,15 +152,22 @@ export async function createListingBackend(productData: any) {
   }
 }
 
-export async function delistProductBackend(productId: string | number) {
+export async function delistProductBackend(productId: string | number, sellerHandle?: string) {
   try {
-    const res = await fetch(`${API_BASE_URL}/products/${productId}`, {
+    const url = sellerHandle 
+      ? `${API_BASE_URL}/products/${productId}?sellerHandle=${encodeURIComponent(sellerHandle)}`
+      : `${API_BASE_URL}/products/${productId}`;
+    const res = await fetch(url, {
       method: 'DELETE',
       headers: {
         'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
       }
     });
-    return res.ok;
+    if (!res.ok) {
+      console.warn('Backend delist forbidden or failed:', await res.text());
+      return false;
+    }
+    return true;
   } catch (err) {
     console.warn('Backend delete offline, deleted locally.', err);
     return true;
@@ -231,6 +238,10 @@ export function getCleanUserHandle(str?: string | null): string {
     s = s.split('@')[0];
   }
   s = s.split(' ')[0];
+  const cleanAlpha = s.replace(/[0-9._-]/g, '');
+  if (cleanAlpha.length >= 2) {
+    s = cleanAlpha;
+  }
   return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
 }
 
@@ -252,6 +263,18 @@ export async function aiSemanticSearchBackend(query: string, maxPrice?: number) 
     return await res.json();
   } catch (err) {
     return null;
+  }
+}
+
+export async function deleteThreadBackend(user1: string, user2: string) {
+  try {
+    const res = await fetch(`${API_BASE_URL}/chat-messages/thread?user1=${encodeURIComponent(user1)}&user2=${encodeURIComponent(user2)}`, {
+      method: 'DELETE'
+    });
+    return res.ok;
+  } catch (err) {
+    console.warn('Failed to delete thread from backend:', err);
+    return false;
   }
 }
 

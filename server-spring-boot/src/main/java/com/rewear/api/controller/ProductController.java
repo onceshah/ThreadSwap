@@ -94,8 +94,13 @@ public class ProductController {
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<String> deleteProduct(@PathVariable String id) {
-        productService.deleteProduct(id);
+    public ResponseEntity<String> deleteProduct(
+            @PathVariable String id,
+            @RequestParam(required = false) String sellerHandle) {
+        boolean ok = productService.deleteProduct(id, sellerHandle);
+        if (!ok) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body("Only the seller who published this item can delist it.");
+        }
         return ResponseEntity.ok("Product deleted / delisted successfully");
     }
 
