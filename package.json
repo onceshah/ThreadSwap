@@ -1,0 +1,8 @@
+{
+  "name": "threadswap",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "build": "cd client-web && npm install && npm run build"
+  }
+}
