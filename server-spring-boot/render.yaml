@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: threadswap-backend
+    env: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    envVars:
+      - key: SPRING_DATA_MONGODB_URI
+        sync: false

@@ -1,0 +1,35 @@
+server:
+  port: 8081
+  servlet:
+    context-path: /api/v1
+
+spring:
+  application:
+    name: rewear-api
+  data:
+    mongodb:
+      uri: ${MONGODB_URI:mongodb://localhost:27017/rewear}
+      auto-index-creation: true
+      database: rewear
+
+# JWT Security Configurations
+security:
+  jwt:
+    secret-key: ${JWT_SECRET_KEY:defaultSecretKeyWithAtLeast256BitsCapacityForHS256AlgorithmVerificationSignatures}
+    access-token-expiration-ms: 2592000000 # 30 Days
+    refresh-token-expiration-ms: 2592000000 # 30 Days
+
+# Cloudinary Integrations
+cloudinary:
+  cloud-name: ${CLOUDINARY_CLOUD_NAME:mock_cloud_name}
+  api-key: ${CLOUDINARY_API_KEY:mock_api_key}
+  api-secret: ${CLOUDINARY_API_SECRET:mock_api_secret}
+
+# Firebase Configuration File Location
+firebase:
+  config-path: ${FIREBASE_CONFIG_PATH:classpath:firebase-service-account.json}
+
+# File Upload Threshold Controls
+spring.servlet.multipart:
+  max-file-size: 10MB
+  max-request-size: 10MB
