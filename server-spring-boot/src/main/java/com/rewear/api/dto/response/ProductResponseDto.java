@@ -19,10 +19,14 @@ public class ProductResponseDto {
     private String sellerEmail;
     private Double latitude;
     private Double longitude;
+    private String locationName;
     private List<ImageDto> images;
     private String createdAt;
 
     public ProductResponseDto() {}
+
+    public String getLocationName() { return locationName; }
+    public void setLocationName(String locationName) { this.locationName = locationName; }
 
     public UUID getId() { return id; }
     public void setId(UUID id) { this.id = id; }

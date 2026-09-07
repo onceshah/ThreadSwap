@@ -44,6 +44,8 @@ public class Product {
 
     private Double longitude;
 
+    private String locationName;
+
     // MongoDB 2dsphere index for high-performance spatial proximity queries
     @GeoSpatialIndexed(type = GeoSpatialIndexType.GEO_2DSPHERE)
     private GeoJsonPoint geom;
@@ -98,6 +100,9 @@ public class Product {
 
     public Double getLongitude() { return longitude; }
     public void setLongitude(Double longitude) { this.longitude = longitude; }
+
+    public String getLocationName() { return locationName; }
+    public void setLocationName(String locationName) { this.locationName = locationName; }
 
     public GeoJsonPoint getGeom() { return geom; }
     public void setGeom(GeoJsonPoint geom) { this.geom = geom; }

@@ -29,6 +29,16 @@ public class User {
 
     private Instant updatedAt = Instant.now();
 
+    private String avatar;
+
+    private String city;
+
+    private String phone;
+
+    private String bio;
+
+    private String location;
+
     public User() {}
 
     public UUID getId() { return id; }
@@ -57,4 +67,19 @@ public class User {
 
     public Instant getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(Instant updatedAt) { this.updatedAt = updatedAt; }
+
+    public String getAvatar() { return avatar; }
+    public void setAvatar(String avatar) { this.avatar = avatar; }
+
+    public String getCity() { return city; }
+    public void setCity(String city) { this.city = city; }
+
+    public String getPhone() { return phone; }
+    public void setPhone(String phone) { this.phone = phone; }
+
+    public String getBio() { return bio; }
+    public void setBio(String bio) { this.bio = bio; }
+
+    public String getLocation() { return location; }
+    public void setLocation(String location) { this.location = location; }
 }

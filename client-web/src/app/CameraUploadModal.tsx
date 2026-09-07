@@ -318,18 +318,28 @@ export default function CameraUploadModal({ onPhotosConfirmed, onClose }: Camera
                       ✨ Or Choose a Sample Test Image:
                     </span>
                     <div className="grid grid-cols-5 gap-2">
-                      {sampleImages.map((s, idx) => (
-                        <div 
-                          key={idx}
-                          onClick={() => setPhotos([s.url])}
-                          className="group cursor-pointer rounded-xl overflow-hidden border border-border hover:border-primary relative aspect-square transition-all"
-                        >
-                          <img src={s.url} alt={s.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
-                          <span className="absolute bottom-0 inset-x-0 bg-black/70 text-white text-[8px] font-bold text-center py-0.5 truncate px-1">
-                            {s.name}
-                          </span>
-                        </div>
-                      ))}
+                      {sampleImages.map((s, idx) => {
+                        const isSelected = photos.includes(s.url);
+                        return (
+                          <div 
+                            key={idx}
+                            onClick={() => setPhotos(prev => isSelected ? prev.filter(p => p !== s.url) : [...prev, s.url])}
+                            className={`group cursor-pointer rounded-xl overflow-hidden border relative aspect-square transition-all ${
+                              isSelected ? 'border-primary ring-2 ring-primary/40 shadow-sm' : 'border-border hover:border-primary'
+                            }`}
+                          >
+                            <img src={s.url} alt={s.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                            {isSelected && (
+                              <span className="absolute top-1 right-1 bg-primary text-white text-[9px] w-4 h-4 rounded-full flex items-center justify-center font-bold shadow-xs">
+                                ✓
+                              </span>
+                            )}
+                            <span className="absolute bottom-0 inset-x-0 bg-black/70 text-white text-[8px] font-bold text-center py-0.5 truncate px-1">
+                              {s.name}
+                            </span>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 </div>

@@ -69,6 +69,7 @@ public class ProductServiceImpl implements ProductService {
         product.setSellerEmail(request.getSellerEmail() != null ? request.getSellerEmail() : (seller != null ? seller.getEmail() : "guest@rewear.com"));
         product.setLatitude(request.getLatitude());
         product.setLongitude(request.getLongitude());
+        product.setLocationName(request.getLocationName() != null && !request.getLocationName().isBlank() ? request.getLocationName() : "Vikasnagar, Dehradun");
         
         // Convert lat/lon double to PostGIS JTS Point
         product.setGeom(SpatialUtil.createPoint(request.getLatitude(), request.getLongitude()));
@@ -195,6 +196,25 @@ public class ProductServiceImpl implements ProductService {
         dto.setSellerEmail(sEmail != null && !sEmail.isBlank() ? sEmail : "guest@rewear.com");
         dto.setLatitude(product.getLatitude() != null ? product.getLatitude() : 19.1363);
         dto.setLongitude(product.getLongitude() != null ? product.getLongitude() : 72.8277);
+
+        String locName = product.getLocationName();
+        if (locName == null || locName.isBlank()) {
+            if (product.getLatitude() != null && product.getLongitude() != null) {
+                if (Math.abs(product.getLatitude() - 30.4035) < 0.25 && Math.abs(product.getLongitude() - 77.9340) < 0.25) {
+                    locName = "Vikasnagar, Dehradun";
+                } else if (Math.abs(product.getLatitude() - 30.3165) < 0.35 && Math.abs(product.getLongitude() - 78.0322) < 0.35) {
+                    locName = "Dehradun, Uttarakhand";
+                } else if (Math.abs(product.getLatitude() - 19.1) < 0.6 && Math.abs(product.getLongitude() - 72.8) < 0.6) {
+                    locName = "Andheri West, Mumbai";
+                } else {
+                    locName = product.getLatitude().toString() + ", " + product.getLongitude().toString();
+                }
+            } else {
+                locName = "Vikasnagar, Dehradun";
+            }
+        }
+        dto.setLocationName(locName);
+
         dto.setCreatedAt(product.getCreatedAt() != null ? DateTimeFormatter.ISO_INSTANT.format(product.getCreatedAt()) : Instant.now().toString());
 
         List<ImageDto> imageDtos = product.getImages() != null ? product.getImages().stream().map(img -> 

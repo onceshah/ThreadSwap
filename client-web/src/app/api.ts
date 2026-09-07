@@ -2,34 +2,119 @@
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8081/api/v1').replace(/\/$/, '');
 
-export async function fetchProductsFromBackend(lat = 19.1363, lng = 72.8277, radius = 50.0) {
+export async function fetchProductsFromBackend(lat?: number, lng?: number, radius?: number, city?: string) {
   try {
-    const res = await fetch(`${API_BASE_URL}/products?latitude=${lat}&longitude=${lng}&radius=${radius}`);
+    let url = `${API_BASE_URL}/products`;
+    const params = new URLSearchParams();
+    if (lat !== undefined && lng !== undefined) {
+      params.append('latitude', String(lat));
+      params.append('longitude', String(lng));
+      if (radius !== undefined) params.append('radius', String(radius));
+    }
+    if (city && city.toLowerCase() !== 'all') {
+      params.append('city', city);
+    }
+    const queryString = params.toString();
+    if (queryString) {
+      url += `?${queryString}`;
+    }
+
+    const res = await fetch(url);
     if (!res.ok) throw new Error('Failed to fetch backend products');
     const data = await res.json();
-    return data.map((item: any) => ({
-      id: item.id,
-      name: item.title,
-      seller: item.sellerName || 'Anonymous',
-      sellerEmail: item.sellerEmail || '',
-      sellerAvatar: (item.sellerName || 'A').slice(0, 2).toUpperCase(),
-      price: item.price,
-      condition: item.condition,
-      type: item.transactionType === 'SELL' ? 'Sell' : item.transactionType === 'EXCHANGE' ? 'Exchange' : 'Free/Donate',
-      distance: 'Within radius', // We can compute real distance if needed
-      image: (item.images && item.images.length > 0) ? item.images[0].url : 'https://images.unsplash.com/photo-1591047139829-d91aecb6caea?w=800&h=600&fit=crop&auto=format',
-      category: item.categoryName || 'Tops',
-      rating: 4.8,
-      reviews: 12,
-      description: item.description,
-      location: item.locationName || (item.latitude && item.longitude ? `${item.latitude.toFixed(2)}°, ${item.longitude.toFixed(2)}°` : 'Nearby'),
-      lat: item.latitude,
-      lng: item.longitude
-    }));
+    return data.map((item: any) => {
+      const imgList: string[] = Array.isArray(item.images) && item.images.length > 0
+        ? item.images.map((img: any) => (typeof img === 'string' ? img : img?.url)).filter(Boolean)
+        : (item.image ? [item.image] : ['https://images.unsplash.com/photo-1591047139829-d91aecb6caea?w=800&h=600&fit=crop&auto=format']);
+
+      return {
+        id: item.id || Date.now(),
+        name: item.title,
+        seller: item.sellerName || 'Priya Sharma',
+        sellerEmail: item.sellerEmail || '',
+        sellerAvatar: (item.sellerName || 'A').slice(0, 2).toUpperCase(),
+        price: item.price,
+        condition: item.condition,
+        type: item.transactionType === 'SELL' ? 'Sell' : item.transactionType === 'EXCHANGE' ? 'Exchange' : 'Free/Donate',
+        distance: 'Within radius',
+        image: imgList[0],
+        images: imgList,
+        category: item.categoryName || 'Tops',
+        rating: 4.8,
+        reviews: 12,
+        description: item.description,
+        location: item.locationName || (item.latitude && item.longitude ? (
+          (Math.abs(item.latitude - 30.4035) < 0.25 && Math.abs(item.longitude - 77.9340) < 0.25)
+            ? 'Vikasnagar, Dehradun'
+            : (Math.abs(item.latitude - 30.3165) < 0.35 && Math.abs(item.longitude - 78.0322) < 0.35)
+              ? 'Dehradun, Uttarakhand'
+              : (Math.abs(item.latitude - 19.1) < 0.6 && Math.abs(item.longitude - 72.8) < 0.6)
+                ? 'Andheri West, Mumbai'
+                : `${item.latitude.toFixed(4)}°, ${item.longitude.toFixed(4)}°`
+        ) : 'Vikasnagar, Dehradun'),
+        lat: item.latitude,
+        lng: item.longitude
+      };
+    });
   } catch (err) {
     console.warn('Backend API offline or unreachable, using pre-loaded products fallback.', err);
     return null;
   }
+}
+
+export async function fetchMarketplaceStatsBackend(): Promise<{ itemsSaved: number; activeUsers: number; citiesCovered: number }> {
+  try {
+    let res = await fetch(`${API_BASE_URL}/stats`);
+    if (!res.ok) {
+      res = await fetch(`${API_BASE_URL}/products/stats`);
+    }
+    if (res.ok) {
+      const data = await res.json();
+      return {
+        itemsSaved: data.itemsSaved ?? 0,
+        activeUsers: data.activeUsers ?? 0,
+        citiesCovered: data.citiesCovered ?? 1
+      };
+    }
+  } catch (e) {
+    console.warn('Failed to fetch stats from backend:', e);
+  }
+  return { itemsSaved: 5, activeUsers: 6, citiesCovered: 2 };
+}
+
+export async function fetchUserProfileBackend(email?: string) {
+  try {
+    const token = localStorage.getItem('token');
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const url = email ? `${API_BASE_URL}/users/profile?email=${encodeURIComponent(email)}` : `${API_BASE_URL}/users/profile`;
+    const res = await fetch(url, { headers });
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (e) {
+    console.warn('Failed to fetch user profile:', e);
+  }
+  return null;
+}
+
+export async function updateUserProfileBackend(profileData: any) {
+  try {
+    const token = localStorage.getItem('token');
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const res = await fetch(`${API_BASE_URL}/users/profile`, {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify(profileData)
+    });
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (e) {
+    console.warn('Failed to update user profile on backend:', e);
+  }
+  return null;
 }
 
 export async function registerBackend(firstName: string, lastName: string, email: string, pass: string) {
@@ -92,6 +177,10 @@ export async function createListingBackend(productData: any) {
     const storedUser = localStorage.getItem('authUser');
     const authUser = storedUser ? JSON.parse(storedUser) : null;
 
+    const photosList: string[] = Array.isArray(productData.images) && productData.images.length > 0
+      ? productData.images
+      : (productData.image ? [productData.image] : ['https://images.unsplash.com/photo-1591047139829-d91aecb6caea?w=800&h=600&fit=crop&auto=format']);
+
     const requestPayload = {
       title: productData.name || 'Pre-loved Item',
       description: productData.description || 'Quality pre-loved item listed on ReWear marketplace.',
@@ -99,9 +188,14 @@ export async function createListingBackend(productData: any) {
       condition: productData.condition || 'Gently Used',
       transactionType: productData.type === 'Sell' ? 'SELL' : productData.type === 'Exchange' ? 'EXCHANGE' : 'DONATE',
       categoryId: productData.category || 'Tops',
-      latitude: typeof productData.lat === 'number' ? productData.lat : 19.1363,
-      longitude: typeof productData.lng === 'number' ? productData.lng : 72.8277,
-      images: [{ url: productData.image || 'https://images.unsplash.com/photo-1591047139829-d91aecb6caea?w=800&h=600&fit=crop&auto=format' }],
+      latitude: typeof productData.lat === 'number' ? productData.lat : 30.4035,
+      longitude: typeof productData.lng === 'number' ? productData.lng : 77.9340,
+      locationName: productData.location || 'Vikasnagar, Dehradun',
+      images: photosList.map((url, idx) => ({
+        url,
+        publicId: `img_${Date.now()}_${idx}`,
+        sortOrder: idx
+      })),
       sellerName: productData.seller || authUser?.name || 'Anonymous',
       sellerEmail: productData.sellerEmail || authUser?.email || ''
     };
@@ -124,10 +218,19 @@ export async function createListingBackend(productData: any) {
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
       console.warn(`Backend POST /products failed: ${errText}. Saving product locally.`);
-      return { id: Date.now(), ...productData };
+      return { 
+        id: Date.now(), 
+        ...productData, 
+        image: photosList[0], 
+        images: photosList 
+      };
     }
 
     const createdProduct = await res.json();
+    const retImages: string[] = Array.isArray(createdProduct.images) && createdProduct.images.length > 0
+      ? createdProduct.images.map((img: any) => typeof img === 'string' ? img : img?.url).filter(Boolean)
+      : photosList;
+
     return {
       id: createdProduct.id || Date.now(),
       name: createdProduct.title || productData.name,
@@ -136,19 +239,23 @@ export async function createListingBackend(productData: any) {
       condition: createdProduct.condition || productData.condition,
       category: createdProduct.categoryName || productData.category,
       description: createdProduct.description || productData.description,
-      image: (createdProduct.images && createdProduct.images.length > 0) ? createdProduct.images[0].url : productData.image,
+      image: retImages[0],
+      images: retImages,
       seller: createdProduct.sellerName || productData.seller || 'Priya Sharma',
       sellerAvatar: (createdProduct.sellerName || productData.seller || 'Priya Sharma').slice(0, 2).toUpperCase(),
       lat: createdProduct.latitude ?? productData.lat,
       lng: createdProduct.longitude ?? productData.lng,
-      location: productData.location || 'Andheri West, Mumbai',
+      location: createdProduct.locationName || productData.location || 'Vikasnagar, Dehradun',
       distance: '0.4 km',
       rating: 5.0,
       reviews: 1
     };
   } catch (err) {
     console.warn('Backend API error during product creation. Saving locally:', err);
-    return { id: Date.now(), ...productData };
+    const fallbackPhotos = Array.isArray(productData.images) && productData.images.length > 0 
+      ? productData.images 
+      : [productData.image || 'https://images.unsplash.com/photo-1591047139829-d91aecb6caea?w=800&h=600&fit=crop&auto=format'];
+    return { id: Date.now(), ...productData, image: fallbackPhotos[0], images: fallbackPhotos };
   }
 }
 

@@ -37,6 +37,8 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/auth/**").permitAll()
                 .requestMatchers("/products/**").permitAll()
+                .requestMatchers("/stats/**").permitAll()
+                .requestMatchers("/users/**").permitAll()
                 .requestMatchers("/chat-messages/**").permitAll()  // simple chat REST API
                 .requestMatchers("/ws/**").permitAll() // WebSocket connections handled manually via handlers
                 .anyRequest().authenticated()

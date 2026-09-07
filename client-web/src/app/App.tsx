@@ -9,9 +9,16 @@ import {
   Send, Image as ImageIcon, Zap, RotateCcw, Moon, Sun,
   Shield, HelpCircle, ChevronDown, Upload, Eye, EyeOff,
   AlertCircle, Menu, ExternalLink, TrendingUp, Recycle, MessageSquare, Repeat,
-  Trash2, Edit3, Check, Tag, Award, Clock, Sparkles
+  Trash2, Edit3, Check, Tag, Award, Clock, Sparkles,
+  Loader2, Navigation, Compass
 } from "lucide-react";
-import { fetchProductsFromBackend, loginBackend, registerBackend, createListingBackend, delistProductBackend, updateProductStatusBackend, fetchChatMessagesBackend, sendChatMessageBackend, fetchUserChatThreadsBackend, deleteThreadBackend, clearAllChatMessagesBackend, getCleanUserHandle, buildThreadKey, aiSemanticSearchBackend } from "./api";
+import { 
+  fetchProductsFromBackend, loginBackend, registerBackend, createListingBackend, 
+  delistProductBackend, updateProductStatusBackend, fetchChatMessagesBackend, 
+  sendChatMessageBackend, fetchUserChatThreadsBackend, deleteThreadBackend, 
+  clearAllChatMessagesBackend, getCleanUserHandle, buildThreadKey, aiSemanticSearchBackend,
+  fetchMarketplaceStatsBackend, fetchUserProfileBackend, updateUserProfileBackend
+} from "./api";
 import OpenStreetMapContainer, { defaultMapProducts, MapProduct } from "./OpenStreetMapContainer";
 import CameraUploadModal from "./CameraUploadModal";
 
@@ -23,9 +30,10 @@ interface Product {
   id: number; name: string; seller: string; sellerAvatar?: string; price: number;
   condition: "Brand New" | "Gently Used" | "Well Worn";
   type: "Sell" | "Exchange" | "Free/Donate";
-  distance: string; image: string; category: string;
+  distance: string; image: string; images?: string[]; category: string;
   rating: number; reviews: number; description?: string;
   location?: string; lat?: number; lng?: number;
+  sellerEmail?: string;
 }
 
 interface ChatThread {
@@ -62,11 +70,56 @@ const typeColor: Record<string, string> = {
   "Free/Donate": "bg-green-100 text-green-700",
 };
 
+// Helper to filter listings by user's city based on location string or coordinates
+export function isProductInCity(p: Product, city?: string): boolean {
+  if (!city || city.toLowerCase() === 'all') return true;
+  const c = city.trim().toLowerCase();
+  const loc = (p.location || '').toLowerCase();
+
+  // 1. Direct text substring matching (bidirectional)
+  if (loc.includes(c) || c.includes(loc)) return true;
+
+  // 2. Vikasnagar is within Dehradun district / region
+  if ((c === 'vikasnagar' || c === 'dehradun') && (loc.includes('vikasnagar') || loc.includes('dehradun'))) {
+    return true;
+  }
+
+  // 3. Proximity check based on coordinates if available
+  if (p.lat != null && p.lng != null) {
+    if (c === 'vikasnagar') {
+      const dLat = Math.abs(p.lat - 30.4035);
+      const dLng = Math.abs(p.lng - 77.9340);
+      return dLat < 0.35 && dLng < 0.35;
+    }
+    if (c === 'dehradun') {
+      const dLat = Math.abs(p.lat - 30.3165);
+      const dLng = Math.abs(p.lng - 78.0322);
+      return (dLat < 0.6 && dLng < 0.6) || (Math.abs(p.lat - 30.4035) < 0.35 && Math.abs(p.lng - 77.9340) < 0.35);
+    }
+    if (c === 'mumbai') {
+      const dLat = Math.abs(p.lat - 19.0760);
+      const dLng = Math.abs(p.lng - 72.8777);
+      return dLat < 0.6 && dLng < 0.6;
+    }
+    if (c === 'delhi') {
+      const dLat = Math.abs(p.lat - 28.6139);
+      const dLng = Math.abs(p.lng - 77.2090);
+      return dLat < 0.6 && dLng < 0.6;
+    }
+    if (c === 'bangalore' || c === 'bengaluru') {
+      const dLat = Math.abs(p.lat - 12.9716);
+      const dLng = Math.abs(p.lng - 77.5946);
+      return dLat < 0.6 && dLng < 0.6;
+    }
+  }
+  return false;
+}
+
 // ─── TOP NAV ─────────────────────────────────────────────────────────────────
 
 function TopNav({ page, onNav, darkMode, onToggleDark, unread, authUser, onLogout }: {
   page: Page; onNav: (p: Page, mode?: string) => void; darkMode: boolean; onToggleDark: () => void; unread: number;
-  authUser: { name: string; email: string } | null;
+  authUser: { name: string; email: string; avatar?: string | null } | null;
   onLogout: () => void;
 }) {
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -128,8 +181,14 @@ function TopNav({ page, onNav, darkMode, onToggleDark, unread, authUser, onLogou
                 onClick={() => setShowUserMenu(v => !v)}
                 className="flex items-center gap-2 pl-1 pr-3 py-1 rounded-full bg-primary/10 border border-primary/20 hover:bg-primary/15 transition-colors"
               >
-                <div className="w-7 h-7 rounded-full overflow-hidden border border-primary/30 flex-shrink-0">
-                  <img src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=60&h=60&fit=crop&auto=format" alt="avatar" className="w-full h-full object-cover" />
+                <div className="w-7 h-7 rounded-full overflow-hidden border border-primary/30 flex-shrink-0 bg-primary/20 flex items-center justify-center">
+                  {authUser.avatar ? (
+                    <img src={authUser.avatar} alt="avatar" className="w-full h-full object-cover" />
+                  ) : (
+                    <span className="text-[10px] font-bold text-primary">
+                      {authUser.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+                    </span>
+                  )}
                 </div>
                 <span className="text-xs font-bold text-foreground hidden md:block" style={{ fontFamily: "'Plus Jakarta Sans'" }}>
                   {authUser.name.split(' ')[0]}
@@ -342,6 +401,13 @@ function ProductDetailModal({ product, onClose, onStartChat, onViewSellerProfile
 }) {
   const [delisting, setDelisting] = useState(false);
   const [purchased, setPurchased] = useState(false);
+  const [activeImgIndex, setActiveImgIndex] = useState(0);
+
+  const allImages: string[] = (product.images && product.images.length > 0)
+    ? product.images
+    : [product.image];
+  const safeImgIndex = Math.min(Math.max(0, activeImgIndex), allImages.length - 1);
+  const currentImg = allImages[safeImgIndex] || product.image;
 
   const currentHandle = getCleanUserHandle(authUser?.name || authUser?.email || '').toLowerCase();
   const sellerHandle = getCleanUserHandle(product.seller || '').toLowerCase();
@@ -376,23 +442,88 @@ function ProductDetailModal({ product, onClose, onStartChat, onViewSellerProfile
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
       <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="bg-card w-full max-w-2xl rounded-3xl border border-border shadow-2xl overflow-hidden relative my-8">
         
-        <button onClick={onClose} className="absolute top-4 right-4 z-10 p-2 rounded-full bg-white/80 backdrop-blur-sm text-foreground hover:bg-white transition-colors shadow-sm">
+        <button onClick={onClose} className="absolute top-4 right-4 z-20 p-2 rounded-full bg-white/80 backdrop-blur-sm text-foreground hover:bg-white transition-colors shadow-sm">
           <X size={18} />
         </button>
 
         <div className="grid md:grid-cols-2">
-          {/* Product Image */}
-          <div className="aspect-[3/4] bg-muted relative overflow-hidden">
-            <img src={product.image} alt={product.name} className="w-full h-full object-cover" />
-            <div className="absolute top-3 left-3 flex flex-col gap-1">
-              <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full ${typeColor[product.type]}`}>{product.type.toUpperCase()}</span>
-              <span className={`text-[10px] font-semibold px-2.5 py-1 rounded-full ${condColor[product.condition]}`}>{product.condition}</span>
+          {/* Product Image & Gallery */}
+          <div className="flex flex-col bg-muted/30 border-r border-border">
+            <div className="aspect-[3/4] bg-muted relative overflow-hidden group">
+              <img 
+                src={currentImg} 
+                alt={`${product.name} - view ${safeImgIndex + 1}`} 
+                className="w-full h-full object-cover transition-all duration-300" 
+              />
+              
+              <div className="absolute top-3 left-3 flex flex-col gap-1 z-10">
+                <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full ${typeColor[product.type]}`}>{product.type.toUpperCase()}</span>
+                <span className={`text-[10px] font-semibold px-2.5 py-1 rounded-full ${condColor[product.condition]}`}>{product.condition}</span>
+              </div>
+
+              {/* Photo Counter Badge */}
+              {allImages.length > 1 && (
+                <div className="absolute top-3 right-12 z-10 bg-black/65 backdrop-blur-sm text-white text-[11px] font-bold px-2.5 py-1 rounded-full flex items-center gap-1.5 shadow-sm">
+                  <ImageIcon size={12} />
+                  <span>{safeImgIndex + 1} / {allImages.length}</span>
+                </div>
+              )}
+
+              {/* Prev / Next Arrows */}
+              {allImages.length > 1 && (
+                <>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveImgIndex((prev) => (prev > 0 ? prev - 1 : allImages.length - 1));
+                    }}
+                    className="absolute left-2.5 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center transition-all opacity-80 hover:opacity-100 z-10 shadow-md"
+                  >
+                    <ChevronLeft size={18} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveImgIndex((prev) => (prev < allImages.length - 1 ? prev + 1 : 0));
+                    }}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center transition-all opacity-80 hover:opacity-100 z-10 shadow-md"
+                  >
+                    <ChevronRight size={18} />
+                  </button>
+                </>
+              )}
+
+              {purchased && (
+                <div className="absolute inset-0 bg-emerald-600/90 flex flex-col items-center justify-center text-white p-6 text-center z-20">
+                  <CheckCircle size={48} className="animate-bounce mb-2" />
+                  <h3 className="text-xl font-bold">Item Purchased!</h3>
+                  <p className="text-xs opacity-90 mt-1">Listing has been delisted from the marketplace & map.</p>
+                </div>
+              )}
             </div>
-            {purchased && (
-              <div className="absolute inset-0 bg-emerald-600/90 flex flex-col items-center justify-center text-white p-6 text-center">
-                <CheckCircle size={48} className="animate-bounce mb-2" />
-                <h3 className="text-xl font-bold">Item Purchased!</h3>
-                <p className="text-xs opacity-90 mt-1">Listing has been delisted from the marketplace & map.</p>
+
+            {/* Thumbnail Strip for multiple images */}
+            {allImages.length > 1 && (
+              <div className="p-3 bg-card border-t border-border flex gap-2 overflow-x-auto">
+                {allImages.map((img, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => setActiveImgIndex(idx)}
+                    className={`relative w-14 h-14 rounded-xl overflow-hidden flex-shrink-0 border-2 transition-all ${
+                      safeImgIndex === idx 
+                        ? 'border-primary ring-2 ring-primary/40 scale-105 shadow-sm' 
+                        : 'border-border hover:border-primary/50 opacity-75 hover:opacity-100'
+                    }`}
+                  >
+                    <img src={img} alt={`Thumb ${idx + 1}`} className="w-full h-full object-cover" />
+                    <span className="absolute bottom-0 inset-x-0 bg-black/65 text-white text-[9px] font-bold text-center py-0.5">
+                      {idx + 1}
+                    </span>
+                  </button>
+                ))}
               </div>
             )}
           </div>
@@ -509,11 +640,17 @@ function ProductCard({ p, wishlisted, onWishlist, onClickProduct, aiScore }: {
         <button onClick={e => { e.stopPropagation(); onWishlist(); }} className={`absolute ${aiScore ? "top-10" : "top-3"} right-3 w-8 h-8 rounded-full bg-white/80 backdrop-blur-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity`}>
           <Heart size={14} className={wishlisted ? "fill-red-500 text-red-500" : "text-foreground"} />
         </button>
-        <div className="absolute top-3 left-3 flex flex-col gap-1">
-          <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${typeColor[p.type]}`} style={{ fontFamily: "'Inter'" }}>{p.type.toUpperCase()}</span>
-          <span className={`text-[9px] font-semibold px-2 py-0.5 rounded-full ${condColor[p.condition]}`} style={{ fontFamily: "'Inter'" }}>{p.condition}</span>
+          <div className="absolute top-3 left-3 flex flex-col gap-1">
+            <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${typeColor[p.type]}`} style={{ fontFamily: "'Inter'" }}>{p.type.toUpperCase()}</span>
+            <span className={`text-[9px] font-semibold px-2 py-0.5 rounded-full ${condColor[p.condition]}`} style={{ fontFamily: "'Inter'" }}>{p.condition}</span>
+          </div>
+          {p.images && p.images.length > 1 && (
+            <div className="absolute bottom-2.5 right-2.5 z-10 bg-black/65 backdrop-blur-xs text-white text-[10px] font-bold px-2 py-0.5 rounded-lg flex items-center gap-1 shadow-sm">
+              <ImageIcon size={10} />
+              <span>{p.images.length}</span>
+            </div>
+          )}
         </div>
-      </div>
       <div className="p-3.5">
         <p className="text-sm font-semibold text-foreground truncate" style={{ fontFamily: "'Plus Jakarta Sans'" }}>{p.name}</p>
         <p className="text-xs text-muted-foreground mt-0.5" style={{ fontFamily: "'Inter'" }}>{p.seller}</p>
@@ -535,15 +672,46 @@ function ProductCard({ p, wishlisted, onWishlist, onClickProduct, aiScore }: {
 
 // ─── HOME PAGE ────────────────────────────────────────────────────────────────
 
-function HomePage({ productsList, onNav, onClickProduct }: { productsList: Product[]; onNav: (p: Page, mode?: string) => void; onClickProduct: (p: Product) => void }) {
+function HomePage({ 
+  productsList, 
+  onNav, 
+  onClickProduct,
+  activeCity = "Mumbai",
+  onSelectCity
+}: { 
+  productsList: Product[]; 
+  onNav: (p: Page, mode?: string) => void; 
+  onClickProduct: (p: Product) => void;
+  activeCity?: string;
+  onSelectCity?: (city: string) => void;
+}) {
   const [wishlist, setWishlist] = useState<number[]>([]);
+  const [liveStats, setLiveStats] = useState({
+    itemsSaved: "5",
+    activeUsers: "14",
+    citiesCovered: "1 City"
+  });
+
+  useEffect(() => {
+    fetchMarketplaceStatsBackend().then(res => {
+      if (res) {
+        setLiveStats({
+          itemsSaved: String(res.itemsSaved),
+          activeUsers: String(res.activeUsers),
+          citiesCovered: `${res.citiesCovered} ${res.citiesCovered === 1 ? "City" : "Cities"}`
+        });
+      }
+    });
+  }, [productsList.length]);
 
   const stats = [
-    { icon: <Recycle size={20} />, val: "2.4L+", label: "Items Saved" },
-    { icon: <Leaf size={20} />, val: "8.1 T", label: "CO₂ Reduced" },
-    { icon: <TrendingUp size={20} />, val: "94K+", label: "Active Users" },
-    { icon: <MapPin size={20} />, val: "38 Cities", label: "Covered" },
+    { icon: <Recycle size={22} />, val: liveStats.itemsSaved, label: "Items Saved" },
+    { icon: <TrendingUp size={22} />, val: liveStats.activeUsers, label: "Active Users" },
+    { icon: <MapPin size={22} />, val: liveStats.citiesCovered, label: "Cities Covered" },
   ];
+
+  // Filter listings based strictly on the user's active city / address
+  const featuredProducts = productsList.filter(p => isProductInCity(p, activeCity));
 
   return (
     <div className="bg-background min-h-screen">
@@ -578,60 +746,126 @@ function HomePage({ productsList, onNav, onClickProduct }: { productsList: Produ
         </div>
       </section>
 
-      {/* Stats Bar */}
-      <section className="bg-primary">
-        <div className="max-w-7xl mx-auto px-6 py-5 grid grid-cols-2 md:grid-cols-4 gap-4">
+      {/* Dynamic Impact Stats Bar (3 Dynamic Metrics, Carbon Emission Removed) */}
+      <section className="bg-primary shadow-inner">
+        <div className="max-w-7xl mx-auto px-6 py-5 grid grid-cols-1 sm:grid-cols-3 gap-6">
           {stats.map(s => (
-            <div key={s.label} className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center text-white flex-shrink-0">{s.icon}</div>
+            <div key={s.label} className="flex items-center justify-center sm:justify-start gap-4">
+              <div className="w-11 h-11 rounded-2xl bg-white/15 backdrop-blur-xs flex items-center justify-center text-white flex-shrink-0 shadow-xs">{s.icon}</div>
               <div>
-                <p style={{ fontFamily: "'Plus Jakarta Sans'", fontWeight: 700 }} className="text-white text-lg leading-tight">{s.val}</p>
-                <p className="text-white/70 text-xs" style={{ fontFamily: "'Inter'" }}>{s.label}</p>
+                <p style={{ fontFamily: "'Plus Jakarta Sans'", fontWeight: 800 }} className="text-white text-2xl leading-tight">{s.val}</p>
+                <p className="text-white/80 text-xs font-medium" style={{ fontFamily: "'Inter'" }}>{s.label}</p>
               </div>
             </div>
           ))}
         </div>
       </section>
 
-      {/* Category Strip */}
-      <section className="max-w-7xl mx-auto px-6 py-10">
-        <div className="flex items-center justify-between mb-5">
-          <h2 style={{ fontFamily: "'Plus Jakarta Sans'", fontWeight: 700 }} className="text-xl text-foreground">Browse by Category</h2>
-          <button onClick={() => onNav("discover")} className="text-sm text-primary font-semibold flex items-center gap-1" style={{ fontFamily: "'Inter'" }}>View all <ChevronRight size={15} /></button>
-        </div>
-        <div className="flex gap-3 overflow-x-auto scrollbar-hide pb-2">
-          {categories.map((c, i) => {
-            const imgs = ["https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=120&h=120&fit=crop&auto=format","https://images.unsplash.com/photo-1591047139829-d91aecb6caea?w=120&h=120&fit=crop&auto=format","https://images.unsplash.com/photo-1542272604-787c3835535d?w=120&h=120&fit=crop&auto=format","https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=120&h=120&fit=crop&auto=format","https://images.unsplash.com/photo-1583391733956-6c78276477e2?w=120&h=120&fit=crop&auto=format","https://images.unsplash.com/photo-1548036328-c9fa89d128fa?w=120&h=120&fit=crop&auto=format","https://images.unsplash.com/photo-1596495578065-6e0763fa1178?w=120&h=120&fit=crop&auto=format"];
-            return (
-              <button key={c} onClick={() => onNav("discover")} className="flex-shrink-0 flex flex-col items-center gap-2 group">
-                <div className="w-20 h-20 rounded-2xl overflow-hidden border-2 border-transparent group-hover:border-primary transition-all bg-muted">
-                  {i > 0 && <img src={imgs[i-1] || imgs[0]} alt={c} className="w-full h-full object-cover" />}
-                  {i === 0 && <div className="w-full h-full bg-primary flex items-center justify-center"><Grid3X3 size={24} className="text-white" /></div>}
-                </div>
-                <span className="text-xs font-semibold text-muted-foreground group-hover:text-foreground transition-colors" style={{ fontFamily: "'Inter'" }}>{c}</span>
-              </button>
-            );
-          })}
+      {/* Browse All Items Banner */}
+      <section className="max-w-7xl mx-auto px-6 pt-10 pb-4">
+        <div className="rounded-3xl bg-gradient-to-r from-card via-muted/30 to-card border border-border p-6 md:p-8 flex flex-col md:flex-row items-center justify-between gap-6 shadow-xs">
+          <div className="space-y-1.5 text-center md:text-left">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-bold mb-1">
+              <ShoppingBag size={13} />
+              <span>Full Marketplace Catalog</span>
+            </div>
+            <h2 style={{ fontFamily: "'Plus Jakarta Sans'", fontWeight: 800 }} className="text-2xl text-foreground tracking-tight">
+              Browse All Items
+            </h2>
+            <p className="text-xs text-muted-foreground max-w-xl" style={{ fontFamily: "'Inter'" }}>
+              Explore every pre-loved piece, exchange offer, and donation available across all categories and verified members.
+            </p>
+          </div>
+          <button
+            onClick={() => onNav("discover")}
+            style={{ fontFamily: "'Plus Jakarta Sans'", fontWeight: 700 }}
+            className="px-6 py-3.5 bg-primary text-primary-foreground rounded-2xl text-sm font-bold flex items-center gap-2.5 shadow-md hover:bg-primary/90 transition-all hover:gap-3 flex-shrink-0"
+          >
+            <span>Browse All Items</span>
+            <ArrowRight size={16} />
+          </button>
         </div>
       </section>
 
-      {/* Featured Grid */}
+      {/* Featured Grid (Filtered by Active Address City) */}
       <section className="max-w-7xl mx-auto px-6 pb-12">
-        <div className="flex items-center justify-between mb-5">
-          <h2 style={{ fontFamily: "'Plus Jakarta Sans'", fontWeight: 700 }} className="text-xl text-foreground">Featured Near You</h2>
-          <span className="text-xs text-muted-foreground flex items-center gap-1" style={{ fontFamily: "'Inter'" }}><MapPin size={12} /> Within 5 km</span>
+        <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 style={{ fontFamily: "'Plus Jakarta Sans'", fontWeight: 700 }} className="text-xl text-foreground">Featured Near You</h2>
+              <span className="px-2.5 py-0.5 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center gap-1">
+                <MapPin size={11} /> {activeCity}
+              </span>
+            </div>
+            <p className="text-xs text-muted-foreground mt-0.5" style={{ fontFamily: "'Inter'" }}>
+              Showing listings strictly in your registered location ({featuredProducts.length} items found)
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => onNav("discover")}
+              className="text-xs font-bold text-primary hover:text-primary/80 flex items-center gap-1 mr-2 px-3 py-1.5 rounded-xl border border-primary/20 hover:bg-primary/5 transition-all"
+            >
+              <span>Browse All Items</span>
+              <ChevronRight size={13} />
+            </button>
+            <span className="text-xs font-semibold text-muted-foreground">Marketplace City:</span>
+            <select 
+              value={activeCity} 
+              onChange={e => onSelectCity && onSelectCity(e.target.value)} 
+              className="bg-card border border-border rounded-xl px-3 py-1.5 text-xs font-bold text-foreground outline-none cursor-pointer focus:border-primary shadow-xs"
+            >
+              {Array.from(new Set([
+                activeCity,
+                ...productsList.map(p => p.location ? p.location.split(',')[0].trim() : '').filter(Boolean),
+                'All'
+              ])).map(c => (
+                <option key={c} value={c}>{c === 'All' ? 'All Cities' : (c === activeCity ? `${c} (Selected)` : c)}</option>
+              ))}
+            </select>
+          </div>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-          {productsList.map(p => (
-            <ProductCard 
-              key={p.id} 
-              p={p} 
-              wishlisted={wishlist.includes(p.id)} 
-              onWishlist={() => setWishlist(w => w.includes(p.id) ? w.filter(i => i !== p.id) : [...w, p.id])} 
-              onClickProduct={onClickProduct}
-            />
-          ))}
-        </div>
+
+        {featuredProducts.length === 0 ? (
+          <div className="p-10 rounded-3xl bg-muted/40 border border-border text-center space-y-3">
+            <div className="w-12 h-12 mx-auto rounded-2xl bg-primary/10 text-primary flex items-center justify-center">
+              <MapPin size={24} />
+            </div>
+            <h3 style={{ fontFamily: "'Plus Jakarta Sans'", fontWeight: 700 }} className="text-base text-foreground">
+              No Listings in {activeCity}
+            </h3>
+            <p className="text-xs text-muted-foreground max-w-md mx-auto leading-relaxed">
+              No active listings currently found in <strong>{activeCity}</strong>. Because listings are tailored to local pick-ups, items from other cities are hidden.
+            </p>
+            <div className="flex items-center justify-center gap-3 pt-2">
+              <button 
+                onClick={() => onSelectCity && onSelectCity("All")} 
+                className="px-4 py-2 bg-primary text-primary-foreground text-xs font-bold rounded-xl shadow-xs hover:bg-primary/90 transition-colors"
+              >
+                Explore All Cities ({productsList.length} items)
+              </button>
+              <button 
+                onClick={() => onNav("camera")} 
+                className="px-4 py-2 bg-card border border-border text-foreground text-xs font-bold rounded-xl hover:bg-muted transition-colors"
+              >
+                List First Item in {activeCity}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+            {featuredProducts.map(p => (
+              <ProductCard 
+                key={p.id} 
+                p={p} 
+                wishlisted={wishlist.includes(p.id)} 
+                onWishlist={() => setWishlist(w => w.includes(p.id) ? w.filter(i => i !== p.id) : [...w, p.id])} 
+                onClickProduct={onClickProduct}
+              />
+            ))}
+          </div>
+        )}
       </section>
 
       {/* How It Works */}
@@ -675,7 +909,19 @@ function HomePage({ productsList, onNav, onClickProduct }: { productsList: Produ
 
 // ─── DISCOVER PAGE (GRID & OSMODROID OPENSTREETMAP VIEW) ──────────────────────
 
-function DiscoverPage({ productsList, initialView = "grid", onClickProduct }: { productsList: Product[]; initialView?: "grid" | "map"; onClickProduct: (p: Product) => void }) {
+function DiscoverPage({ 
+  productsList, 
+  initialView = "grid", 
+  onClickProduct,
+  activeCity = "Mumbai",
+  onSelectCity
+}: { 
+  productsList: Product[]; 
+  initialView?: "grid" | "map"; 
+  onClickProduct: (p: Product) => void;
+  activeCity?: string;
+  onSelectCity?: (city: string) => void;
+}) {
   const [view, setView] = useState<"grid" | "map">(initialView);
   const [search, setSearch] = useState("");
   const [activeCat, setActiveCat] = useState("All");
@@ -750,6 +996,7 @@ function DiscoverPage({ productsList, initialView = "grid", onClickProduct }: { 
   };
 
   const filtered = productsList.filter(p => {
+    const mcity = isProductInCity(p, activeCity);
     const mc = activeCat === "All" || p.category === activeCat;
     const hasAiScore = aiScores[String(p.id)] || aiScores[p.name.toLowerCase().trim()];
     const isDomainMatch = aiMode && matchesDomainFrontend(p, search);
@@ -757,7 +1004,7 @@ function DiscoverPage({ productsList, initialView = "grid", onClickProduct }: { 
     const mcond = conditions.length === 0 || conditions.includes(p.condition);
     const mtype = types.length === 0 || types.includes(p.type);
     const mprice = maxPriceFilter >= 5000 || p.price <= maxPriceFilter;
-    return mc && ms && mcond && mtype && mprice;
+    return mcity && mc && ms && mcond && mtype && mprice;
   }).sort((a, b) => {
     if (sort === "Price: Low→High") {
       return a.price - b.price;
@@ -798,6 +1045,24 @@ function DiscoverPage({ productsList, initialView = "grid", onClickProduct }: { 
               <Sparkles size={13} className={aiMode ? "animate-pulse" : ""} />
               <span>{aiMode ? "AI Search Active" : "Enable AI RAG Search"}</span>
             </button>
+          </div>
+
+          {/* City Filter Selector */}
+          <div className="flex items-center gap-1.5 bg-muted rounded-xl px-3 py-2">
+            <MapPin size={13} className="text-primary flex-shrink-0" />
+            <select
+              value={activeCity}
+              onChange={e => onSelectCity && onSelectCity(e.target.value)}
+              className="bg-transparent border-none text-xs font-bold text-foreground outline-none cursor-pointer"
+            >
+              {Array.from(new Set([
+                activeCity,
+                ...productsList.map(p => p.location ? p.location.split(',')[0].trim() : '').filter(Boolean),
+                'All'
+              ])).map(c => (
+                <option key={c} value={c}>{c === 'All' ? 'All Cities' : (c === activeCity ? `${c} (Selected)` : c)}</option>
+              ))}
+            </select>
           </div>
 
           {/* Grid / Map Toggle Button */}
@@ -1075,6 +1340,10 @@ function ListingFormPage({ photos, locationCoords, onPublish, authUser }: {
 
   const handlePublish = async (e: React.FormEvent) => {
     e.preventDefault();
+    const itemPhotos = photos && photos.length > 0 
+      ? photos 
+      : ["https://images.unsplash.com/photo-1591047139829-d91aecb6caea?w=800&h=600&fit=crop&auto=format"];
+
     const itemData = {
       id: Date.now(),
       name: title || "Pre-loved Item",
@@ -1083,16 +1352,17 @@ function ListingFormPage({ photos, locationCoords, onPublish, authUser }: {
       condition,
       category,
       description,
-      image: photos[0] || "https://images.unsplash.com/photo-1591047139829-d91aecb6caea?w=800&h=600&fit=crop&auto=format",
+      image: itemPhotos[0],
+      images: itemPhotos,
       seller: authUser?.name || "Anonymous",
       sellerEmail: authUser?.email || "",
       sellerAvatar: (authUser?.name || "A").slice(0, 2).toUpperCase(),
       rating: 5.0,
       reviews: 1,
       distance: "0.4 km",
-      location: locationCoords?.name || "Andheri West, Mumbai",
-      lat: locationCoords?.lat || 19.1363,
-      lng: locationCoords?.lng || 72.8277
+      location: locationCoords?.name || "Vikasnagar, Dehradun",
+      lat: locationCoords?.lat || 30.4035,
+      lng: locationCoords?.lng || 77.9340
     };
 
     const result = await createListingBackend(itemData);
@@ -1112,10 +1382,40 @@ function ListingFormPage({ photos, locationCoords, onPublish, authUser }: {
           <div className="flex items-center gap-2">
             <MapPin className="w-4 h-4 text-primary" />
             <span>
-              Geo-Tag Attached: <strong className="text-primary">{locationCoords?.name || "Andheri West, Mumbai"}</strong> ({locationCoords?.lat.toFixed(4) || "19.1363"}° N, {locationCoords?.lng.toFixed(4) || "72.8277"}° E)
+              Geo-Tag Attached: <strong className="text-primary">{locationCoords?.name || "Vikasnagar, Dehradun"}</strong> ({locationCoords?.lat.toFixed(4) || "30.4035"}° N, {locationCoords?.lng.toFixed(4) || "77.9340"}° E)
             </span>
           </div>
         </div>
+
+        {/* Attached Photos Preview */}
+        {photos && photos.length > 0 && (
+          <div className="p-4 rounded-2xl bg-card border border-border space-y-2.5 shadow-xs">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                <ImageIcon size={14} className="text-primary" />
+                Attached Photos ({photos.length})
+              </span>
+              <span className="text-[11px] text-muted-foreground">All photos are uploaded and accessible</span>
+            </div>
+            <div className="flex gap-2.5 overflow-x-auto pb-1">
+              {photos.map((url, idx) => (
+                <div key={idx} className="relative w-16 h-16 rounded-xl overflow-hidden border border-border flex-shrink-0 shadow-xs">
+                  <img src={url} alt={`Photo ${idx + 1}`} className="w-full h-full object-cover" />
+                  {idx === 0 && (
+                    <span className="absolute bottom-0 inset-x-0 bg-primary text-white text-[8px] font-bold text-center py-0.5">
+                      Cover
+                    </span>
+                  )}
+                  {idx > 0 && (
+                    <span className="absolute bottom-0 inset-x-0 bg-black/60 text-white text-[8px] font-bold text-center py-0.5">
+                      Photo {idx + 1}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <form onSubmit={handlePublish} className="space-y-4">
           <div>
@@ -1806,7 +2106,10 @@ function ProfilePage({
   onDelistProduct,
   onMarkSold,
   onSelectProduct,
-  authUser
+  authUser,
+  onUpdateAuthUser,
+  activeCity = "Mumbai",
+  onSelectCity
 }: { 
   darkMode: boolean; 
   onToggleDark: () => void; 
@@ -1815,32 +2118,255 @@ function ProfilePage({
   onDelistProduct: (id: number | string) => void;
   onMarkSold: (id: number | string) => void;
   onSelectProduct: (p: Product) => void;
-  authUser: { name: string; email: string } | null;
+  authUser: { name: string; email: string; avatar?: string | null } | null;
+  onUpdateAuthUser?: (user: any) => void;
+  activeCity?: string;
+  onSelectCity?: (city: string) => void;
 }) {
-  const [activeTab, setActiveTab] = useState<"listings" | "address" | "purchases" | "exchanges" | "impact" | "settings">("listings");
+  const [activeTab, setActiveTab] = useState<"listings" | "address" | "history" | "settings">("listings");
+  const [historyFilter, setHistoryFilter] = useState<"all" | "purchases" | "swaps">("all");
+  const avatarFileInputRef = useRef<HTMLInputElement>(null);
   
-  // Profile user state — initialized from logged-in user
+  // Profile user state — initialized from stored profile or logged-in user
   const displayName = authUser?.name || "Guest User";
   const displayEmail = authUser?.email || "guest@rewear.in";
-  const [userProfile, setUserProfile] = useState({
-    name: displayName,
-    email: displayEmail,
-    phone: "+91 98201 45892",
-    location: "Mumbai, India",
-    bio: "Passionate about circular fashion & zero textile waste. Buying and selling pre-loved pieces.",
-    avatar: null as string | null  // null = show initials pill
+  const [userProfile, setUserProfile] = useState(() => {
+    const currentHandle = authUser ? getCleanUserHandle(authUser.name || authUser.email).toLowerCase() : 'guest';
+    const stored = localStorage.getItem(`userProfile_${currentHandle}`);
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        return {
+          name: parsed.name || displayName,
+          email: parsed.email || displayEmail,
+          phone: parsed.phone || "+91 98201 45892",
+          location: parsed.location || "Mumbai, India",
+          bio: parsed.bio || "Passionate about circular fashion & zero textile waste. Buying and selling pre-loved pieces.",
+          avatar: parsed.avatar || authUser?.avatar || null
+        };
+      } catch {}
+    }
+    return {
+      name: displayName,
+      email: displayEmail,
+      phone: "+91 98201 45892",
+      location: "Mumbai, India",
+      bio: "Passionate about circular fashion & zero textile waste. Buying and selling pre-loved pieces.",
+      avatar: (authUser?.avatar || null) as string | null
+    };
   });
 
-  // Saved addresses state
-  const [addresses, setAddresses] = useState([
-    { id: 1, type: "Home / Primary", name: displayName, addressLine: "Flat 402, Palm Grove Heights, Lokhandwala Complex", area: "Andheri West", city: "Mumbai", state: "Maharashtra", pincode: "400058", phone: "+91 98201 45892", isDefault: true },
-    { id: 2, type: "Pickup Studio", name: `${displayName.split(' ')[0]} Fashion Studio`, addressLine: "Shop 12, Ground Floor, Hill Road", area: "Bandra West", city: "Mumbai", state: "Maharashtra", pincode: "400050", phone: "+91 98201 45892", isDefault: false },
-  ]);
+  // Load saved profile data from localStorage & backend on mount
+  useEffect(() => {
+    if (!authUser?.email) return;
+    const currentHandle = getCleanUserHandle(authUser.name || authUser.email).toLowerCase();
+    const stored = localStorage.getItem(`userProfile_${currentHandle}`);
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        setUserProfile(prev => ({
+          ...prev,
+          ...parsed,
+          avatar: parsed.avatar || authUser.avatar || prev.avatar
+        }));
+      } catch {}
+    } else if (authUser.avatar) {
+      setUserProfile(prev => ({ ...prev, avatar: authUser.avatar || null }));
+    }
+
+    // Also fetch backend profile if available
+    fetchUserProfileBackend(authUser.email).then(data => {
+      if (data) {
+        setUserProfile(prev => ({
+          ...prev,
+          name: data.name || prev.name,
+          phone: (data.phone !== undefined && data.phone !== null && data.phone !== "") ? data.phone : prev.phone,
+          location: (data.location !== undefined && data.location !== null && data.location !== "") ? data.location : prev.location,
+          bio: data.bio || prev.bio,
+          avatar: data.avatar || prev.avatar
+        }));
+        if (data.avatar && onUpdateAuthUser && data.avatar !== authUser.avatar) {
+          onUpdateAuthUser({ ...authUser, avatar: data.avatar });
+        }
+      }
+    });
+  }, [authUser?.email]);
+
+  // Saved addresses state with persistent storage
+  const [addresses, setAddresses] = useState(() => {
+    const currentHandle = authUser ? getCleanUserHandle(authUser.name || authUser.email).toLowerCase() : 'guest';
+    const stored = localStorage.getItem(`userAddresses_${currentHandle}`);
+    if (stored) {
+      try { return JSON.parse(stored); } catch {}
+    }
+    return [
+      { id: 1, type: "Home / Primary", name: displayName, addressLine: "Flat 402, Palm Grove Heights, Lokhandwala Complex", area: "Andheri West", city: "Mumbai", state: "Maharashtra", pincode: "400058", phone: "+91 98201 45892", isDefault: true },
+      { id: 2, type: "Pickup Studio", name: `${displayName.split(' ')[0]} Fashion Studio`, addressLine: "Shop 12, Ground Floor, Hill Road", area: "Bandra West", city: "Mumbai", state: "Maharashtra", pincode: "400050", phone: "+91 98201 45892", isDefault: false },
+    ];
+  });
   const [showAddAddress, setShowAddAddress] = useState(false);
-  const [newAddr, setNewAddr] = useState({ type: "Home", name: displayName, addressLine: "", area: "", city: "Mumbai", state: "Maharashtra", pincode: "", phone: "" });
+  const [newAddr, setNewAddr] = useState({ type: "Home / Primary", name: displayName, addressLine: "", area: "", city: "Mumbai", state: "Maharashtra", pincode: "", phone: "+91 98201 45892" });
+
+  // Delivery Address form state for Settings & Profile
+  const [addrForm, setAddrForm] = useState(() => {
+    const currentHandle = authUser ? getCleanUserHandle(authUser.name || authUser.email).toLowerCase() : 'guest';
+    const stored = localStorage.getItem(`userAddresses_${currentHandle}`);
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        const def = parsed.find((a: any) => a.isDefault) || parsed[0];
+        if (def) return {
+          addressLine: def.addressLine || "",
+          area: def.area || "",
+          city: def.city || "Mumbai",
+          state: def.state || "Maharashtra",
+          pincode: def.pincode || "",
+          phone: def.phone || "+91 98201 45892"
+        };
+      } catch {}
+    }
+    return {
+      addressLine: "Flat 402, Palm Grove Heights, Lokhandwala Complex",
+      area: "Andheri West",
+      city: "Mumbai",
+      state: "Maharashtra",
+      pincode: "400058",
+      phone: "+91 98201 45892"
+    };
+  });
+
+  // Sync addrForm whenever addresses change
+  useEffect(() => {
+    const currentPrimary = addresses.find(a => a.isDefault) || addresses[0];
+    if (currentPrimary) {
+      setAddrForm({
+        addressLine: currentPrimary.addressLine || "",
+        area: currentPrimary.area || "",
+        city: currentPrimary.city || "Mumbai",
+        state: currentPrimary.state || "Maharashtra",
+        pincode: currentPrimary.pincode || "",
+        phone: currentPrimary.phone || userProfile.phone
+      });
+    }
+  }, [addresses]);
+
+  const [isLocating, setIsLocating] = useState(false);
+  const [locationDetectMsg, setLocationDetectMsg] = useState<string | null>(null);
+
+  // Auto-detect exact location using device GPS + OpenStreetMap Nominatim reverse geocode
+  const autoDetectAddressLocation = (target: "settings" | "newAddress" = "settings") => {
+    setIsLocating(true);
+    setLocationDetectMsg("Detecting GPS coordinates...");
+
+    if (!navigator.geolocation) {
+      setLocationDetectMsg("Geolocation not supported by this browser.");
+      setIsLocating(false);
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        setLocationDetectMsg("Acquiring address from coordinates...");
+
+        try {
+          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&addressdetails=1`);
+          if (res.ok) {
+            const data = await res.json();
+            const addr = data.address || {};
+
+            // Optional street and house number (leave empty if not detected)
+            const road = addr.road || addr.street || addr.pedestrian || addr.footway || addr.path || addr.highway || '';
+            const houseNumber = addr.house_number || '';
+            const streetLine = [houseNumber, road].filter(Boolean).join(' ');
+
+            // Optional locality / neighbourhood (leave empty if not detected)
+            const area = addr.suburb || addr.neighbourhood || addr.residential || addr.subdistrict || addr.quarter || addr.city_district || addr.village_district || '';
+
+            // City / Town (handles all international and Indian administrative naming conventions)
+            const city = addr.city || addr.town || addr.municipality || addr.village || addr.county || addr.subdistrict || addr.city_district || addr.state_district || '';
+
+            // State & pincode
+            const state = addr.state || addr.province || addr.region || '';
+            const pincode = addr.postcode || '';
+
+            // Format location string for display
+            const detectedHeaderLocation = [area, city, state].filter(Boolean).join(', ');
+
+            if (target === "settings") {
+              setAddrForm(prev => ({
+                ...prev,
+                addressLine: streetLine,
+                area: area,
+                city: city || prev.city,
+                state: state || prev.state,
+                pincode: pincode
+              }));
+              if (detectedHeaderLocation) {
+                setUserProfile(prev => ({
+                  ...prev,
+                  location: detectedHeaderLocation
+                }));
+              }
+            } else {
+              setNewAddr(prev => ({
+                ...prev,
+                addressLine: streetLine,
+                area: area,
+                city: city || prev.city,
+                state: state || prev.state,
+                pincode: pincode
+              }));
+            }
+
+            setLocationDetectMsg(`✓ Location detected: ${city || 'Location resolved'}${state ? ', ' + state : ''}`);
+            setTimeout(() => setLocationDetectMsg(null), 5000);
+          } else {
+            throw new Error('Nominatim non-200');
+          }
+        } catch (e) {
+          console.warn("Reverse geocode failed:", e);
+          setLocationDetectMsg("Could not auto-detect address. Please enter your City and State manually.");
+          setTimeout(() => setLocationDetectMsg(null), 5000);
+        } finally {
+          setIsLocating(false);
+        }
+      },
+      (err) => {
+        console.warn("GPS error:", err);
+        setLocationDetectMsg("Could not access GPS. Please enter address manually.");
+        setIsLocating(false);
+        setTimeout(() => setLocationDetectMsg(null), 5000);
+      },
+      { timeout: 10000, enableHighAccuracy: true }
+    );
+  };
 
   // Purchases list
-  const [purchases, setPurchases] = useState<any[]>([]);
+  const [purchases, setPurchases] = useState<any[]>([
+    {
+      id: "ord-101",
+      item: "Vintage Denim Jacket",
+      seller: "Ambrish",
+      date: "Aug 28, 2026",
+      price: 1299,
+      status: "Delivered",
+      thumb: "https://images.unsplash.com/photo-1576995853123-5a10305d93c0?w=150"
+    }
+  ]);
+
+  // Swap history list
+  const [swaps, setSwaps] = useState<any[]>([
+    {
+      id: "swp-201",
+      offeredItem: "Black Linen Shirt",
+      receivedItem: "Decathlon Side Bag",
+      partner: "Ambrish",
+      date: "Sep 02, 2026",
+      status: "Completed"
+    }
+  ]);
 
   // Sold status tracking for user items
   const [soldItemIds, setSoldItemIds] = useState<number[]>([]);
@@ -1860,23 +2386,230 @@ function ProfilePage({
   });
   const displayListings = myListings;
 
+  const handleAvatarFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      alert('Please upload an image file (PNG, JPG, WebP).');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        // Resize image to max 320x320 using canvas for fast performance and instant persistence
+        const canvas = document.createElement('canvas');
+        const maxDim = 320;
+        let width = img.width;
+        let height = img.height;
+        if (width > height) {
+          if (width > maxDim) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          }
+        } else {
+          if (height > maxDim) {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.88);
+          setUserProfile(prev => ({ ...prev, avatar: dataUrl }));
+
+          const currentHandle = getCleanUserHandle(authUser?.name || authUser?.email).toLowerCase();
+          try {
+            const stored = localStorage.getItem(`userProfile_${currentHandle}`);
+            const cur = stored ? JSON.parse(stored) : {};
+            localStorage.setItem(`userProfile_${currentHandle}`, JSON.stringify({ ...cur, avatar: dataUrl }));
+          } catch {}
+
+          if (onUpdateAuthUser && authUser) {
+            onUpdateAuthUser({ ...authUser, avatar: dataUrl });
+          }
+
+          // Sync avatar to backend
+          updateUserProfileBackend({ email: authUser?.email, avatar: dataUrl });
+        }
+      };
+      img.src = event.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemoveAvatar = () => {
+    setUserProfile(prev => ({ ...prev, avatar: null }));
+    const currentHandle = getCleanUserHandle(authUser?.name || authUser?.email).toLowerCase();
+    try {
+      const stored = localStorage.getItem(`userProfile_${currentHandle}`);
+      const cur = stored ? JSON.parse(stored) : {};
+      localStorage.setItem(`userProfile_${currentHandle}`, JSON.stringify({ ...cur, avatar: null }));
+    } catch {}
+    if (onUpdateAuthUser && authUser) {
+      onUpdateAuthUser({ ...authUser, avatar: null });
+    }
+    updateUserProfileBackend({ email: authUser?.email, avatar: null });
+  };
+
+  const handleSaveProfileChanges = async () => {
+    const currentHandle = getCleanUserHandle(authUser?.name || authUser?.email).toLowerCase();
+
+    // 1. Mandatory City and State validation (strictly compulsory everywhere)
+    const finalCity = (addrForm.city || "").trim();
+    const finalState = (addrForm.state || "").trim();
+
+    if (!finalCity || !finalState) {
+      alert("City and State are compulsory fields. Please fill in both your City and State before saving.");
+      return;
+    }
+
+    const finalPhone = (userProfile.phone !== undefined && userProfile.phone !== null) ? userProfile.phone.trim() : "";
+    const finalLocation = (userProfile.location !== undefined && userProfile.location !== null && userProfile.location.trim()) 
+      ? userProfile.location.trim() 
+      : `${addrForm.area && addrForm.area.trim() ? addrForm.area.trim() + ', ' : ''}${finalCity}, ${finalState}`;
+
+    // Street address and locality are optional. If blank, use area or city
+    const deliveryAddressLine = addrForm.addressLine && addrForm.addressLine.trim() 
+      ? addrForm.addressLine.trim() 
+      : (addrForm.area && addrForm.area.trim() ? addrForm.area.trim() : finalCity);
+
+    // 2. Update or create the default delivery address
+    let updatedAddresses = [...addresses];
+    const defaultIdx = updatedAddresses.findIndex(a => a.isDefault);
+    const updatedDeliveryAddr = {
+      id: defaultIdx >= 0 ? updatedAddresses[defaultIdx].id : Date.now(),
+      type: "Home / Primary",
+      name: userProfile.name,
+      addressLine: deliveryAddressLine,
+      area: addrForm.area ? addrForm.area.trim() : "",
+      city: finalCity,
+      state: finalState,
+      pincode: addrForm.pincode ? addrForm.pincode.trim() : "",
+      phone: finalPhone || addrForm.phone || "",
+      isDefault: true
+    };
+
+    if (defaultIdx >= 0) {
+      updatedAddresses[defaultIdx] = updatedDeliveryAddr;
+    } else if (updatedAddresses.length > 0) {
+      updatedAddresses = updatedAddresses.map(a => ({ ...a, isDefault: false }));
+      updatedAddresses.unshift(updatedDeliveryAddr);
+    } else {
+      updatedAddresses = [updatedDeliveryAddr];
+    }
+
+    setAddresses(updatedAddresses);
+    localStorage.setItem(`userAddresses_${currentHandle}`, JSON.stringify(updatedAddresses));
+
+    // 3. Save profile preserving user's typed phone and location
+    const updatedProfile = {
+      ...userProfile,
+      phone: finalPhone,
+      location: finalLocation
+    };
+    setUserProfile(updatedProfile);
+    localStorage.setItem(`userProfile_${currentHandle}`, JSON.stringify(updatedProfile));
+
+    // 4. Update active city across the entire application so marketplace matches exact city
+    if (finalCity && onSelectCity) {
+      onSelectCity(finalCity);
+    }
+
+    // 5. Update authUser state
+    if (onUpdateAuthUser && authUser) {
+      onUpdateAuthUser({
+        ...authUser,
+        name: userProfile.name,
+        avatar: userProfile.avatar
+      });
+    }
+
+    // 6. Sync to backend API
+    await updateUserProfileBackend({
+      email: authUser?.email,
+      name: userProfile.name,
+      phone: finalPhone,
+      location: finalLocation,
+      city: finalCity,
+      bio: userProfile.bio,
+      avatar: userProfile.avatar
+    });
+
+    alert(`Profile, phone number, and delivery address saved successfully!\nHeader location: ${finalLocation}\nMarketplace filtered to: ${finalCity}`);
+  };
+
   const handleSaveAddress = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newAddr.addressLine || !newAddr.pincode) return;
-    setAddresses(prev => [
-      ...prev,
+    if (!newAddr.city || !newAddr.city.trim() || !newAddr.state || !newAddr.state.trim()) {
+      alert("City and State are compulsory. Please fill in both fields.");
+      return;
+    }
+    const isFirst = addresses.length === 0;
+    const finalAddressLine = newAddr.addressLine && newAddr.addressLine.trim() 
+      ? newAddr.addressLine.trim() 
+      : (newAddr.area && newAddr.area.trim() ? newAddr.area.trim() : newAddr.city);
+
+    const updated = [
+      ...addresses,
       {
         id: Date.now(),
         ...newAddr,
-        isDefault: prev.length === 0
+        city: newAddr.city.trim(),
+        state: newAddr.state.trim(),
+        addressLine: finalAddressLine,
+        isDefault: isFirst
       }
-    ]);
+    ];
+    setAddresses(updated);
+    const currentHandle = authUser ? getCleanUserHandle(authUser.name || authUser.email).toLowerCase() : 'guest';
+    localStorage.setItem(`userAddresses_${currentHandle}`, JSON.stringify(updated));
     setShowAddAddress(false);
-    setNewAddr({ type: "Home", name: displayName, addressLine: "", area: "", city: "Mumbai", state: "Maharashtra", pincode: "", phone: "" });
+    setNewAddr({ type: "Home / Primary", name: displayName, addressLine: "", area: "", city: "Mumbai", state: "Maharashtra", pincode: "", phone: userProfile.phone || "+91 98201 45892" });
   };
 
   const handleDeleteAddress = (id: number) => {
-    setAddresses(prev => prev.filter(a => a.id !== id));
+    const updated = addresses.filter(a => a.id !== id);
+    setAddresses(updated);
+    const currentHandle = authUser ? getCleanUserHandle(authUser.name || authUser.email).toLowerCase() : 'guest';
+    localStorage.setItem(`userAddresses_${currentHandle}`, JSON.stringify(updated));
+  };
+
+  const handleSetDefaultAddress = (id: number) => {
+    const target = addresses.find(a => a.id === id);
+    const updated = addresses.map(a => ({ ...a, isDefault: a.id === id }));
+    setAddresses(updated);
+    const currentHandle = authUser ? getCleanUserHandle(authUser.name || authUser.email).toLowerCase() : 'guest';
+    localStorage.setItem(`userAddresses_${currentHandle}`, JSON.stringify(updated));
+
+    if (target) {
+      setAddrForm({
+        addressLine: target.addressLine,
+        area: target.area,
+        city: target.city,
+        state: target.state,
+        pincode: target.pincode,
+        phone: target.phone || userProfile.phone
+      });
+      const exactLocation = `${target.area ? target.area + ', ' : ''}${target.city}, ${target.state}`;
+      setUserProfile(prev => ({ ...prev, location: exactLocation }));
+      const curProfile = localStorage.getItem(`userProfile_${currentHandle}`);
+      if (curProfile) {
+        try {
+          const parsed = JSON.parse(curProfile);
+          localStorage.setItem(`userProfile_${currentHandle}`, JSON.stringify({ ...parsed, location: exactLocation }));
+        } catch {}
+      }
+    }
+
+    if (target?.city && onSelectCity) {
+      onSelectCity(target.city);
+    }
+    alert(`Primary address updated to ${target?.city || 'new location'}! Marketplace listings now filtered to ${target?.city || 'this area'}.`);
   };
 
   const handleToggleSold = (id: any) => {
@@ -1886,23 +2619,49 @@ function ProfilePage({
 
   return (
     <div className="bg-background min-h-screen pb-16">
+      {/* Hidden file input for avatar uploads */}
+      <input 
+        ref={avatarFileInputRef} 
+        type="file" 
+        accept="image/*" 
+        className="hidden" 
+        onChange={handleAvatarFileSelect} 
+      />
+
       <div className="max-w-6xl mx-auto px-6 py-10 space-y-8">
         
         {/* Profile Header Hero */}
         <div className="bg-gradient-to-r from-[#c46212] to-[#e07b22] rounded-3xl p-8 text-white shadow-lg relative overflow-hidden">
           <div className="absolute right-0 top-0 bottom-0 w-1/3 bg-white/5 skew-x-12 pointer-events-none" />
           <div className="relative flex flex-col md:flex-row items-center md:items-start gap-6">
-            <div className="relative group">
-              <div className="w-24 h-24 rounded-full overflow-hidden border-4 border-white/40 shadow-md flex items-center justify-center bg-white/20">
-                {userProfile.avatar
-                  ? <img src={userProfile.avatar} alt={userProfile.name} className="w-full h-full object-cover" />
-                  : <span style={{ fontFamily: "'Plus Jakarta Sans'", fontWeight: 800, fontSize: "32px" }} className="text-white">
-                      {userProfile.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
-                    </span>
-                }
+            
+            {/* Interactive Avatar with Upload Trigger */}
+            <div 
+              className="relative group cursor-pointer" 
+              onClick={() => avatarFileInputRef.current?.click()}
+              title="Click to change profile picture"
+            >
+              <div className="w-24 h-24 rounded-full overflow-hidden border-4 border-white/40 shadow-md flex items-center justify-center bg-white/20 relative">
+                {userProfile.avatar ? (
+                  <img src={userProfile.avatar} alt={userProfile.name} className="w-full h-full object-cover" />
+                ) : (
+                  <span style={{ fontFamily: "'Plus Jakarta Sans'", fontWeight: 800, fontSize: "32px" }} className="text-white">
+                    {userProfile.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+                  </span>
+                )}
+                {/* Hover overlay with camera icon */}
+                <div className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-white text-[10px] font-bold">
+                  <Camera size={18} className="mb-0.5" />
+                  <span>Update</span>
+                </div>
               </div>
-              <button onClick={() => setActiveTab("settings")} className="absolute bottom-0 right-0 p-1.5 bg-card text-foreground rounded-full shadow-sm hover:scale-110 transition-transform">
-                <Edit3 size={13} />
+              <button 
+                type="button" 
+                onClick={(e) => { e.stopPropagation(); avatarFileInputRef.current?.click(); }} 
+                className="absolute bottom-0 right-0 p-1.5 bg-card text-foreground rounded-full shadow-sm hover:scale-110 transition-transform"
+                title="Upload Photo"
+              >
+                <Camera size={13} className="text-primary" />
               </button>
             </div>
 
@@ -1934,80 +2693,38 @@ function ProfilePage({
                 <p style={{ fontFamily: "'Plus Jakarta Sans'", fontWeight: 800 }} className="text-xl text-white">11</p>
                 <p className="text-[10px] text-white/70 font-semibold">Sold/Swapped</p>
               </div>
-              <div className="w-px bg-white/20 my-1" />
-              <div>
-                <p style={{ fontFamily: "'Plus Jakarta Sans'", fontWeight: 800 }} className="text-xl text-white">18.4 kg</p>
-                <p className="text-[10px] text-white/70 font-semibold">CO₂ Saved</p>
-              </div>
             </div>
           </div>
         </div>
 
-        {/* Profile Main Tabs & Layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+        {/* Profile Tabs Content */}
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
           
-          {/* Left Navigation Sidebar */}
-          <aside className="lg:col-span-4 space-y-3">
-            <div className="bg-card rounded-3xl border border-border p-3 shadow-xs space-y-1">
-              {[
-                { id: "listings", label: "My Listings", count: displayListings.length, icon: <Package size={17} /> },
-                { id: "address", label: "Delivery & Pickup Addresses", count: addresses.length, icon: <MapPin size={17} /> },
-                { id: "purchases", label: "Purchases & Orders", count: purchases.length, icon: <ShoppingBag size={17} /> },
-                { id: "exchanges", label: "Swaps & Exchanges", count: 4, icon: <Repeat size={17} /> },
-                { id: "impact", label: "EcoSaver Impact & Rewards", icon: <Leaf size={17} /> },
-                { id: "settings", label: "Edit Profile & Settings", icon: <User size={17} /> },
-              ].map(t => {
-                const isActive = activeTab === t.id;
-                return (
-                  <button
-                    key={t.id}
-                    onClick={() => setActiveTab(t.id as any)}
-                    className={`w-full p-3.5 rounded-2xl flex items-center justify-between transition-all text-xs font-bold ${
-                      isActive 
-                        ? "bg-primary text-primary-foreground shadow-sm" 
-                        : "text-foreground hover:bg-muted text-left"
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className={isActive ? "text-primary-foreground" : "text-primary"}>
-                        {t.icon}
-                      </div>
-                      <span>{t.label}</span>
-                    </div>
-                    {t.count !== undefined && (
-                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                        isActive ? "bg-white/20 text-white" : "bg-muted text-muted-foreground"
-                      }`}>
-                        {t.count}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Quick Actions Card */}
-            <div className="bg-muted/40 rounded-3xl border border-border p-5 space-y-3">
-              <h4 style={{ fontFamily: "'Plus Jakarta Sans'", fontWeight: 700 }} className="text-xs text-foreground uppercase tracking-wider">
-                Quick Actions
-              </h4>
-              <button 
-                onClick={() => onNav("camera")}
-                className="w-full py-3 bg-primary text-primary-foreground rounded-2xl text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 shadow-sm hover:bg-primary/90 transition-colors"
+          {/* Side Navigation */}
+          <aside className="space-y-1">
+            {[
+              { id: "listings", label: `My Listings (${displayListings.length})`, icon: <Package size={16} /> },
+              { id: "address", label: "Delivery Addresses", icon: <MapPin size={16} /> },
+              { id: "history", label: `History (${purchases.length + swaps.length})`, icon: <Clock size={16} /> },
+              { id: "settings", label: "Settings & Profile", icon: <Edit3 size={16} /> },
+            ].map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as any)}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-bold transition-all ${
+                  activeTab === tab.id
+                    ? "bg-primary text-primary-foreground shadow-xs"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                }`}
               >
-                <Plus size={15} /> List New Item
+                {tab.icon}
+                <span>{tab.label}</span>
               </button>
-              <button 
-                onClick={() => onNav("map", "map")}
-                className="w-full py-3 bg-card border border-border text-foreground rounded-2xl text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 hover:bg-muted transition-colors"
-              >
-                <MapIcon size={15} className="text-primary" /> View OsmDroid Map
-              </button>
-            </div>
+            ))}
           </aside>
 
-          {/* Right Tab Content Container */}
-          <main className="lg:col-span-8">
+          {/* Main Tab Content */}
+          <main className="lg:col-span-3 space-y-6">
             
             {/* 1. MY LISTINGS TAB */}
             {activeTab === "listings" && (
@@ -2015,33 +2732,29 @@ function ProfilePage({
                 <div className="flex items-center justify-between">
                   <div>
                     <h2 style={{ fontFamily: "'Plus Jakarta Sans'", fontWeight: 800 }} className="text-xl text-foreground">
-                      My Listings ({displayListings.length})
+                      Your Active Items ({displayListings.length})
                     </h2>
-                    <p className="text-xs text-muted-foreground">Manage, mark as sold, or delist items from the marketplace & map.</p>
+                    <p className="text-xs text-muted-foreground">Manage your clothes listed on the ThreadSwap marketplace.</p>
                   </div>
-                  <button 
-                    onClick={() => onNav("camera")}
-                    className="px-4 py-2 bg-primary text-primary-foreground rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm hover:bg-primary/90"
-                  >
-                    <Plus size={14} /> Add Listing
+                  <button onClick={() => onNav("camera")} className="px-4 py-2 bg-primary text-primary-foreground rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm hover:bg-primary/90">
+                    <Plus size={14} /> List Another Item
                   </button>
                 </div>
 
                 <div className="space-y-3">
                   {displayListings.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-16 text-center space-y-4">
-                      <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center">
-                        <Package size={28} className="text-primary" />
+                    <div className="p-12 rounded-3xl bg-card border border-border text-center space-y-3">
+                      <div className="w-12 h-12 mx-auto rounded-2xl bg-primary/10 text-primary flex items-center justify-center">
+                        <Package size={24} />
                       </div>
-                      <div>
-                        <p style={{ fontFamily: "'Plus Jakarta Sans'", fontWeight: 700 }} className="text-base text-foreground">No listings yet</p>
-                        <p className="text-xs text-muted-foreground mt-1">Start selling by uploading your first item!</p>
-                      </div>
-                      <button
-                        onClick={() => onNav("camera")}
-                        className="px-6 py-2.5 bg-primary text-primary-foreground rounded-xl text-xs font-bold flex items-center gap-2 shadow-sm hover:bg-primary/90"
-                      >
-                        <Plus size={14} /> List Your First Item
+                      <h3 style={{ fontFamily: "'Plus Jakarta Sans'", fontWeight: 700 }} className="text-base text-foreground">
+                        No Active Listings
+                      </h3>
+                      <p className="text-xs text-muted-foreground max-w-sm mx-auto leading-relaxed">
+                        Declutter your closet and list clothes for sale, exchange, or donation in your neighborhood!
+                      </p>
+                      <button onClick={() => onNav("camera")} className="px-5 py-2.5 bg-primary text-primary-foreground text-xs font-bold rounded-xl shadow-xs hover:bg-primary/90">
+                        List an Item Now
                       </button>
                     </div>
                   ) : displayListings.map(p => {
@@ -2058,7 +2771,7 @@ function ProfilePage({
                             <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                               isSold ? "bg-muted text-muted-foreground" : "bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400"
                             }`}>
-                              {isSold ? "SOLD" : "ACTIVE ON MAP"}
+                              {isSold ? "SOLD" : "ACTIVE"}
                             </span>
                           </div>
 
@@ -2068,49 +2781,28 @@ function ProfilePage({
                           </p>
                         </div>
 
-                        {/* Action Buttons for Listing */}
-                        <div className="flex items-center gap-2 flex-wrap justify-center sm:justify-end">
-                          <button
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <button 
+                            onClick={() => onSelectProduct(p)}
+                            className="p-2.5 bg-muted hover:bg-muted/80 text-foreground rounded-xl text-xs font-semibold"
+                            title="View Detail"
+                          >
+                            <Eye size={15} />
+                          </button>
+                          <button 
                             onClick={() => handleToggleSold(p.id)}
-                            className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 transition-all ${
-                              isSold 
-                                ? "bg-amber-500/10 text-amber-700 border border-amber-300 dark:border-amber-800" 
-                                : "bg-emerald-500/10 text-emerald-700 border border-emerald-300 dark:border-emerald-800 hover:bg-emerald-500/20"
+                            className={`px-3 py-2 rounded-xl text-xs font-bold transition-colors ${
+                              isSold ? "bg-muted text-muted-foreground" : "bg-emerald-600 hover:bg-emerald-700 text-white"
                             }`}
                           >
-                            <Check size={13} />
-                            <span>{isSold ? "Mark Active" : "Mark Sold"}</span>
+                            {isSold ? "Mark Available" : "Mark Sold"}
                           </button>
-
-                          <button
-                            onClick={() => onSelectProduct(p)}
-                            className="px-3 py-1.5 rounded-xl bg-muted text-foreground hover:bg-muted/80 text-xs font-bold"
+                          <button 
+                            onClick={() => onDelistProduct(p.id)}
+                            className="p-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-600 rounded-xl text-xs font-semibold"
+                            title="Delist Item"
                           >
-                            View
-                          </button>
-
-                          <button
-                            onClick={() => {
-                              const currentHandle = getCleanUserHandle(authUser?.name || authUser?.email || '').toLowerCase();
-                              const sellerHandle = getCleanUserHandle(p.seller || '').toLowerCase();
-                              const sellerEmail = (p.sellerEmail || '').toLowerCase();
-                              const userEmail = (authUser?.email || '').toLowerCase();
-                              const isSeller = (!currentHandle && !userEmail) ? false :
-                                (currentHandle && sellerHandle && currentHandle === sellerHandle) ||
-                                (userEmail && sellerEmail && userEmail === sellerEmail);
-
-                              if (!isSeller) {
-                                alert(`Permission Denied: Only ${p.seller || 'the seller who published this item'} can delist it.`);
-                                return;
-                              }
-                              if (window.confirm(`Are you sure you want to delist "${p.name}"? It will be removed immediately.`)) {
-                                onDelistProduct(p.id);
-                              }
-                            }}
-                            className="p-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-600 border border-red-200 dark:border-red-900/40 transition-colors"
-                            title="Delist / Remove Item"
-                          >
-                            <Trash2 size={14} />
+                            <Trash2 size={15} />
                           </button>
                         </div>
                       </div>
@@ -2120,7 +2812,7 @@ function ProfilePage({
               </div>
             )}
 
-            {/* 2. MY ADDRESSES TAB */}
+            {/* 2. ADDRESSES TAB */}
             {activeTab === "address" && (
               <div className="space-y-5">
                 <div className="flex items-center justify-between">
@@ -2128,26 +2820,45 @@ function ProfilePage({
                     <h2 style={{ fontFamily: "'Plus Jakarta Sans'", fontWeight: 800 }} className="text-xl text-foreground">
                       Delivery & Pickup Addresses
                     </h2>
-                    <p className="text-xs text-muted-foreground">Manage your home and studio addresses for item exchanges & local pickup.</p>
+                    <p className="text-xs text-muted-foreground">Manage your primary address. Marketplace listings are filtered to match your primary city.</p>
                   </div>
                   <button 
                     onClick={() => setShowAddAddress(v => !v)}
                     className="px-4 py-2 bg-primary text-primary-foreground rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm hover:bg-primary/90"
                   >
-                    <Plus size={14} /> {showAddAddress ? "Cancel" : "Add Address"}
+                    <Plus size={14} /> {showAddAddress ? "Cancel" : "Add New"}
                   </button>
                 </div>
 
                 {/* Add Address Form Accordion */}
                 {showAddAddress && (
                   <form onSubmit={handleSaveAddress} className="bg-card rounded-2xl border border-primary/40 p-6 space-y-4 shadow-sm animate-in fade-in">
-                    <h3 style={{ fontFamily: "'Plus Jakarta Sans'", fontWeight: 700 }} className="text-sm text-foreground">
-                      Add New Location / Address
-                    </h3>
+                    <div className="flex items-center justify-between">
+                      <h3 style={{ fontFamily: "'Plus Jakarta Sans'", fontWeight: 700 }} className="text-sm text-foreground">
+                        Add New Location / Address
+                      </h3>
+                      <button
+                        type="button"
+                        onClick={() => autoDetectAddressLocation("newAddress")}
+                        disabled={isLocating}
+                        className="px-3 py-1.5 bg-primary/10 hover:bg-primary/20 text-primary rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors disabled:opacity-60"
+                      >
+                        {isLocating ? <Loader2 size={13} className="animate-spin" /> : <Navigation size={13} />}
+                        <span>Auto-Detect GPS</span>
+                      </button>
+                    </div>
+
+                    {locationDetectMsg && (
+                      <div className="p-2.5 rounded-xl bg-primary/10 border border-primary/20 text-xs font-medium text-primary flex items-center gap-2">
+                        <Compass size={13} />
+                        <span>{locationDetectMsg}</span>
+                      </div>
+                    )}
+
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
                         <label className="block text-xs font-semibold text-muted-foreground mb-1">Address Label</label>
-                        <select value={newAddr.type} onChange={e => setNewAddr(prev => ({ ...prev, type: e.target.value }))} className="w-full bg-muted border border-border rounded-xl px-3 py-2 text-xs font-semibold outline-none">
+                        <select value={newAddr.type} onChange={e => setNewAddr(prev => ({ ...prev, type: e.target.value }))} className="w-full bg-background border border-border rounded-xl px-3 py-2 text-xs font-semibold outline-none">
                           <option>Home / Primary</option>
                           <option>Pickup Studio</option>
                           <option>Office</option>
@@ -2156,19 +2867,27 @@ function ProfilePage({
                       </div>
                       <div>
                         <label className="block text-xs font-semibold text-muted-foreground mb-1">Contact Name</label>
-                        <input value={newAddr.name} onChange={e => setNewAddr(prev => ({ ...prev, name: e.target.value }))} placeholder="Priya Sharma" className="w-full bg-muted border border-border rounded-xl px-3 py-2 text-xs outline-none" required />
+                        <input value={newAddr.name} onChange={e => setNewAddr(prev => ({ ...prev, name: e.target.value }))} placeholder="Full Name" className="w-full bg-background border border-border rounded-xl px-3 py-2 text-xs outline-none" required />
                       </div>
                       <div className="sm:col-span-2">
-                        <label className="block text-xs font-semibold text-muted-foreground mb-1">Street Address / Building</label>
-                        <input value={newAddr.addressLine} onChange={e => setNewAddr(prev => ({ ...prev, addressLine: e.target.value }))} placeholder="e.g. Flat 402, Palm Heights, Lokhandwala" className="w-full bg-muted border border-border rounded-xl px-3 py-2 text-xs outline-none" required />
+                        <label className="block text-xs font-semibold text-muted-foreground mb-1">Street Address / Building <span className="text-muted-foreground font-normal">(Optional)</span></label>
+                        <input value={newAddr.addressLine} onChange={e => setNewAddr(prev => ({ ...prev, addressLine: e.target.value }))} placeholder="e.g. Flat 402, Palm Heights (Optional)" className="w-full bg-background border border-border rounded-xl px-3 py-2 text-xs outline-none" />
                       </div>
                       <div>
-                        <label className="block text-xs font-semibold text-muted-foreground mb-1">Neighborhood / Area</label>
-                        <input value={newAddr.area} onChange={e => setNewAddr(prev => ({ ...prev, area: e.target.value }))} placeholder="e.g. Andheri West" className="w-full bg-muted border border-border rounded-xl px-3 py-2 text-xs outline-none" required />
+                        <label className="block text-xs font-semibold text-muted-foreground mb-1">Neighborhood / Area <span className="text-muted-foreground font-normal">(Optional)</span></label>
+                        <input value={newAddr.area} onChange={e => setNewAddr(prev => ({ ...prev, area: e.target.value }))} placeholder="e.g. Andheri West (Optional)" className="w-full bg-background border border-border rounded-xl px-3 py-2 text-xs outline-none" />
                       </div>
                       <div>
-                        <label className="block text-xs font-semibold text-muted-foreground mb-1">Pincode</label>
-                        <input value={newAddr.pincode} onChange={e => setNewAddr(prev => ({ ...prev, pincode: e.target.value }))} placeholder="400058" className="w-full bg-muted border border-border rounded-xl px-3 py-2 text-xs outline-none" required />
+                        <label className="block text-xs font-semibold text-muted-foreground mb-1">City / Town <span className="text-primary font-bold">*</span></label>
+                        <input value={newAddr.city} onChange={e => setNewAddr(prev => ({ ...prev, city: e.target.value }))} placeholder="e.g. Mumbai, Delhi, Bengaluru" className="w-full bg-background border border-border rounded-xl px-3 py-2 text-xs outline-none font-bold" required />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-muted-foreground mb-1">State <span className="text-primary font-bold">*</span></label>
+                        <input value={newAddr.state} onChange={e => setNewAddr(prev => ({ ...prev, state: e.target.value }))} placeholder="e.g. Maharashtra, Karnataka" className="w-full bg-background border border-border rounded-xl px-3 py-2 text-xs outline-none font-bold" required />
+                      </div>
+                      <div className="sm:col-span-2">
+                        <label className="block text-xs font-semibold text-muted-foreground mb-1">Postal / Pincode <span className="text-muted-foreground font-normal">(Optional)</span></label>
+                        <input value={newAddr.pincode} onChange={e => setNewAddr(prev => ({ ...prev, pincode: e.target.value }))} placeholder="e.g. 400058" className="w-full bg-background border border-border rounded-xl px-3 py-2 text-xs outline-none" />
                       </div>
                     </div>
                     <button type="submit" className="px-6 py-2.5 bg-primary text-primary-foreground rounded-xl text-xs font-bold uppercase tracking-wider shadow-sm hover:bg-primary/90">
@@ -2180,14 +2899,14 @@ function ProfilePage({
                 {/* Saved Addresses Cards */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {addresses.map(a => (
-                    <div key={a.id} className="bg-card rounded-2xl border border-border p-5 space-y-3 relative shadow-xs hover:border-primary/50 transition-all">
+                    <div key={a.id} className={`bg-card rounded-2xl border p-5 space-y-3 relative shadow-xs transition-all ${a.isDefault ? 'border-primary ring-1 ring-primary/20' : 'border-border hover:border-primary/50'}`}>
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-bold text-primary uppercase tracking-wide flex items-center gap-1.5">
                           <MapPin size={13} /> {a.type}
                         </span>
                         {a.isDefault && (
                           <span className="text-[10px] font-bold px-2 py-0.5 bg-primary/10 text-primary rounded-full">
-                            DEFAULT
+                            PRIMARY LOCATION
                           </span>
                         )}
                       </div>
@@ -2197,15 +2916,32 @@ function ProfilePage({
                           {a.name}
                         </h4>
                         <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                          {a.addressLine}, {a.area}, {a.city} - {a.pincode}
+                          {a.addressLine}, {a.area}, <strong>{a.city}</strong> - {a.pincode}
                         </p>
                         <p className="text-xs text-muted-foreground mt-1">📞 {a.phone}</p>
                       </div>
 
                       <div className="pt-2 border-t border-border flex items-center justify-between">
-                        <button onClick={() => alert("Address updated as primary location!")} className="text-xs font-bold text-primary hover:underline">
-                          Set as Default
-                        </button>
+                        {!a.isDefault ? (
+                          <button onClick={() => handleSetDefaultAddress(a.id)} className="text-xs font-bold text-primary hover:underline">
+                            Set as Primary
+                          </button>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <span className="text-[11px] font-bold text-emerald-600 flex items-center gap-1">
+                              <Check size={12} /> Active for Marketplace
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => autoDetectAddressLocation("settings")}
+                              disabled={isLocating}
+                              className="text-[11px] font-bold text-primary hover:underline flex items-center gap-1"
+                              title="Update with live GPS"
+                            >
+                              <Navigation size={11} /> Auto-Detect
+                            </button>
+                          </div>
+                        )}
                         <button onClick={() => handleDeleteAddress(a.id)} className="text-xs font-semibold text-red-600 hover:underline flex items-center gap-1">
                           <Trash2 size={12} /> Remove
                         </button>
@@ -2216,143 +2952,283 @@ function ProfilePage({
               </div>
             )}
 
-            {/* 3. PURCHASES TAB */}
-            {activeTab === "purchases" && (
-              <div className="space-y-5">
-                <div>
-                  <h2 style={{ fontFamily: "'Plus Jakarta Sans'", fontWeight: 800 }} className="text-xl text-foreground">
-                    Purchases & Order History ({purchases.length})
-                  </h2>
-                  <p className="text-xs text-muted-foreground">Items you have bought or reserved from nearby sellers.</p>
+            {/* 3. HISTORY TAB (COMBINED PURCHASES & SWAP HISTORY) */}
+            {activeTab === "history" && (
+              <div className="space-y-6">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <h2 style={{ fontFamily: "'Plus Jakarta Sans'", fontWeight: 800 }} className="text-xl text-foreground">
+                      Order & Swap History
+                    </h2>
+                    <p className="text-xs text-muted-foreground">All your pre-loved purchases and wardrobe trades in one place.</p>
+                  </div>
+                  <div className="flex items-center gap-1.5 p-1 bg-muted rounded-xl">
+                    {(["all", "purchases", "swaps"] as const).map(tab => (
+                      <button
+                        key={tab}
+                        type="button"
+                        onClick={() => setHistoryFilter(tab)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all capitalize ${
+                          historyFilter === tab ? "bg-card text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        {tab === "all" ? `All (${purchases.length + swaps.length})` : tab === "purchases" ? `Purchases (${purchases.length})` : `Swaps (${swaps.length})`}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
                 <div className="space-y-3">
-                  {purchases.map(p => (
-                    <div key={p.id} className="bg-card rounded-2xl border border-border p-4 flex items-center justify-between gap-4 shadow-xs">
-                      <div className="flex items-center gap-3.5">
-                        <img src={p.image} alt={p.title} className="w-16 h-16 rounded-xl object-cover bg-muted" />
+                  {/* Purchases */}
+                  {(historyFilter === "all" || historyFilter === "purchases") && purchases.map((pur: any) => (
+                    <div key={pur.id} className="bg-card rounded-2xl border border-border p-4 flex items-center justify-between gap-4 shadow-xs hover:border-primary/40 transition-all">
+                      <div className="flex items-center gap-3">
+                        <img src={pur.thumb} alt={pur.item} className="w-14 h-14 rounded-xl object-cover bg-muted" />
                         <div>
-                          <span className="text-[10px] font-mono-label text-muted-foreground block">{p.id} · {p.date}</span>
-                          <h4 style={{ fontFamily: "'Plus Jakarta Sans'", fontWeight: 700 }} className="text-sm text-foreground">{p.title}</h4>
-                          <p className="text-xs text-muted-foreground">Seller: <strong>{p.seller}</strong></p>
+                          <div className="flex items-center gap-2">
+                            <h4 className="text-sm font-bold text-foreground">{pur.item}</h4>
+                            <span className="text-[10px] font-bold px-2 py-0.5 bg-blue-100 dark:bg-blue-950 text-blue-600 rounded-full">PURCHASE</span>
+                          </div>
+                          <p className="text-xs text-muted-foreground">Bought from {pur.seller} · {pur.date}</p>
+                          <span className="text-[10px] font-bold text-emerald-600">{pur.status}</span>
                         </div>
                       </div>
-
-                      <div className="text-right space-y-1">
-                        <span className="text-base font-extrabold text-primary block">{fmt(p.price)}</span>
-                        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400">
-                          <CheckCircle size={10} /> {p.status}
-                        </span>
-                      </div>
+                      <span className="text-sm font-bold text-primary">{fmt(pur.price)}</span>
                     </div>
                   ))}
-                </div>
-              </div>
-            )}
 
-            {/* 4. EXCHANGES TAB */}
-            {activeTab === "exchanges" && (
-              <div className="space-y-5">
-                <div>
-                  <h2 style={{ fontFamily: "'Plus Jakarta Sans'", fontWeight: 800 }} className="text-xl text-foreground">
-                    1-to-1 Swap & Exchange History
-                  </h2>
-                  <p className="text-xs text-muted-foreground">Clothes you swapped with neighbors to keep fashion circular.</p>
-                </div>
-
-                <div className="bg-card rounded-2xl border border-border p-5 space-y-4">
-                  <div className="flex items-center justify-between pb-3 border-b border-border">
-                    <div className="flex items-center gap-2">
-                      <Repeat className="w-5 h-5 text-primary" />
-                      <div>
-                        <h4 className="text-sm font-bold text-foreground">Swapped: Vintage Floral Kurta &harr; Handcrafted Shawl</h4>
-                        <p className="text-xs text-muted-foreground">Partner: Aarti S. · Meetup at Bandra West Station</p>
+                  {/* Swaps */}
+                  {(historyFilter === "all" || historyFilter === "swaps") && swaps.map((swp: any) => (
+                    <div key={swp.id} className="bg-card rounded-2xl border border-border p-4 flex items-center justify-between gap-4 shadow-xs hover:border-primary/40 transition-all">
+                      <div className="flex items-center gap-3">
+                        <div className="w-14 h-14 rounded-xl bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
+                          <Repeat size={22} />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h4 className="text-sm font-bold text-foreground">{swp.offeredItem} ⇄ {swp.receivedItem}</h4>
+                            <span className="text-[10px] font-bold px-2 py-0.5 bg-amber-100 dark:bg-amber-950 text-amber-600 rounded-full">SWAP</span>
+                          </div>
+                          <p className="text-xs text-muted-foreground">Traded with {swp.partner} on {swp.date}</p>
+                          <span className="text-[10px] font-bold text-emerald-600">{swp.status}</span>
+                        </div>
                       </div>
+                      <span className="text-xs font-bold text-muted-foreground">Trade Free</span>
                     </div>
-                    <span className="px-2.5 py-1 bg-emerald-100 dark:bg-emerald-950 text-emerald-700 text-xs font-bold rounded-full">
-                      Swap Complete
-                    </span>
-                  </div>
-                  <p className="text-xs text-muted-foreground leading-relaxed">
-                    🌟 This exchange kept 1.2 kg of cotton textiles out of the landfill and saved approx. 2,400 litres of water!
-                  </p>
+                  ))}
+
+                  {((historyFilter === "purchases" && purchases.length === 0) ||
+                    (historyFilter === "swaps" && swaps.length === 0) ||
+                    (purchases.length === 0 && swaps.length === 0)) && (
+                    <div className="p-8 bg-card rounded-2xl border border-border text-center text-xs text-muted-foreground">
+                      No entries found in history.
+                    </div>
+                  )}
                 </div>
               </div>
             )}
 
-            {/* 5. ECO IMPACT TAB */}
-            {activeTab === "impact" && (
-              <div className="space-y-5">
-                <div>
-                  <h2 style={{ fontFamily: "'Plus Jakarta Sans'", fontWeight: 800 }} className="text-xl text-foreground">
-                    Your EcoSaver Environmental Impact
-                  </h2>
-                  <p className="text-xs text-muted-foreground">Your verified sustainability contributions through ReWear.</p>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <div className="bg-card rounded-2xl border border-border p-5 text-center space-y-1">
-                    <div className="w-10 h-10 mx-auto rounded-xl bg-emerald-500/10 text-emerald-600 flex items-center justify-center mb-2">
-                      <Recycle size={20} />
-                    </div>
-                    <p style={{ fontFamily: "'Plus Jakarta Sans'", fontWeight: 800 }} className="text-2xl text-foreground">29</p>
-                    <p className="text-xs text-muted-foreground font-semibold">Items Diverted</p>
-                  </div>
-
-                  <div className="bg-card rounded-2xl border border-border p-5 text-center space-y-1">
-                    <div className="w-10 h-10 mx-auto rounded-xl bg-primary/10 text-primary flex items-center justify-center mb-2">
-                      <Leaf size={20} />
-                    </div>
-                    <p style={{ fontFamily: "'Plus Jakarta Sans'", fontWeight: 800 }} className="text-2xl text-foreground">18.4 kg</p>
-                    <p className="text-xs text-muted-foreground font-semibold">CO₂ Emissions Avoided</p>
-                  </div>
-
-                  <div className="bg-card rounded-2xl border border-border p-5 text-center space-y-1">
-                    <div className="w-10 h-10 mx-auto rounded-xl bg-blue-500/10 text-blue-600 flex items-center justify-center mb-2">
-                      <Award size={20} />
-                    </div>
-                    <p style={{ fontFamily: "'Plus Jakarta Sans'", fontWeight: 800 }} className="text-2xl text-foreground">1,450</p>
-                    <p className="text-xs text-muted-foreground font-semibold">EcoReward Points</p>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* 6. SETTINGS & EDIT PROFILE TAB */}
+            {/* 4. SETTINGS & EDIT PROFILE TAB */}
             {activeTab === "settings" && (
-              <div className="bg-card rounded-2xl border border-border p-6 space-y-5">
+              <div className="bg-card rounded-2xl border border-border p-6 space-y-6">
                 <div>
                   <h2 style={{ fontFamily: "'Plus Jakarta Sans'", fontWeight: 800 }} className="text-xl text-foreground">
-                    Edit Profile & Preferences
+                    Edit Profile & Delivery Address
                   </h2>
-                  <p className="text-xs text-muted-foreground">Update your public profile, location, and account details.</p>
+                  <p className="text-xs text-muted-foreground">Update your public profile, photo, live location-based delivery address, and preferences.</p>
+                </div>
+
+                {/* Profile Photo Management */}
+                <div className="flex flex-col sm:flex-row items-center gap-5 p-5 rounded-2xl bg-muted/40 border border-border">
+                  <div className="relative group">
+                    <div className="w-20 h-20 rounded-2xl overflow-hidden border-2 border-primary/40 flex-shrink-0 bg-primary/20 flex items-center justify-center shadow-xs">
+                      {userProfile.avatar ? (
+                        <img src={userProfile.avatar} alt="avatar preview" className="w-full h-full object-cover" />
+                      ) : (
+                        <span style={{ fontFamily: "'Plus Jakarta Sans'", fontWeight: 800 }} className="text-xl text-primary">
+                          {userProfile.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex-1 text-center sm:text-left space-y-1.5">
+                    <h4 className="text-sm font-bold text-foreground">Profile Picture</h4>
+                    <p className="text-xs text-muted-foreground">Upload a JPG, PNG, or WebP photo. Click below to select a file from your computer.</p>
+                    <div className="flex items-center justify-center sm:justify-start gap-2 pt-1">
+                      <button 
+                        type="button" 
+                        onClick={() => avatarFileInputRef.current?.click()} 
+                        className="px-4 py-2 bg-primary text-primary-foreground text-xs font-bold rounded-xl shadow-xs hover:bg-primary/90 flex items-center gap-1.5 transition-colors"
+                      >
+                        <Upload size={13} /> Upload New Photo
+                      </button>
+                      {userProfile.avatar && (
+                        <button 
+                          type="button" 
+                          onClick={handleRemoveAvatar} 
+                          className="px-3.5 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-600 text-xs font-semibold rounded-xl transition-colors"
+                        >
+                          Remove Photo
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Delivery Address & GPS Location Detection Section */}
+                <div className="p-5 rounded-2xl bg-muted/40 border border-border space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div>
+                      <h4 className="text-sm font-bold text-foreground flex items-center gap-1.5">
+                        <MapPin size={16} className="text-primary" /> Delivery Address & Location Selection
+                      </h4>
+                      <p className="text-xs text-muted-foreground">
+                        Your delivery address is automatically detected from your location so marketplace listings match your exact city.
+                      </p>
+                    </div>
+                    
+                    {/* Auto-Detect Location Button */}
+                    <button
+                      type="button"
+                      onClick={() => autoDetectAddressLocation("settings")}
+                      disabled={isLocating}
+                      className="px-4 py-2.5 bg-primary text-primary-foreground text-xs font-bold rounded-xl shadow-xs hover:bg-primary/90 flex items-center justify-center gap-2 transition-all flex-shrink-0 disabled:opacity-60"
+                      title="Detect your live location using device GPS"
+                    >
+                      {isLocating ? (
+                        <>
+                          <Loader2 size={14} className="animate-spin" />
+                          <span>Detecting GPS...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Navigation size={14} className="text-white" />
+                          <span>Auto-Detect Live Location</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  {/* Status feedback message */}
+                  {locationDetectMsg && (
+                    <div className="p-3 rounded-xl bg-primary/10 border border-primary/20 text-xs font-semibold text-primary flex items-center gap-2">
+                      <Compass size={14} />
+                      <span>{locationDetectMsg}</span>
+                    </div>
+                  )}
+
+                  {/* Address Inputs (Street & Locality are optional) */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs font-semibold text-muted-foreground mb-1">Street Address / House / Building <span className="text-muted-foreground font-normal">(Optional)</span></label>
+                      <input
+                        value={addrForm.addressLine}
+                        onChange={e => setAddrForm(prev => ({ ...prev, addressLine: e.target.value }))}
+                        placeholder="e.g. Flat 402, Palm Heights (Optional)"
+                        className="w-full bg-background border border-border rounded-xl px-3.5 py-2.5 text-xs text-foreground outline-none focus:border-primary"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-muted-foreground mb-1">Neighborhood / Locality <span className="text-muted-foreground font-normal">(Optional)</span></label>
+                      <input
+                        value={addrForm.area}
+                        onChange={e => setAddrForm(prev => ({ ...prev, area: e.target.value }))}
+                        placeholder="e.g. Andheri West (Optional)"
+                        className="w-full bg-background border border-border rounded-xl px-3.5 py-2.5 text-xs text-foreground outline-none focus:border-primary"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-muted-foreground mb-1">City / Town <span className="text-primary font-bold">*</span></label>
+                      <input
+                        value={addrForm.city}
+                        onChange={e => {
+                          const val = e.target.value;
+                          setAddrForm(prev => ({ ...prev, city: val }));
+                        }}
+                        placeholder="e.g. Mumbai, Delhi, Bengaluru"
+                        className="w-full bg-background border border-border rounded-xl px-3.5 py-2.5 text-xs text-foreground outline-none focus:border-primary font-bold"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-muted-foreground mb-1">State <span className="text-primary font-bold">*</span></label>
+                      <input
+                        value={addrForm.state}
+                        onChange={e => {
+                          const val = e.target.value;
+                          setAddrForm(prev => ({ ...prev, state: val }));
+                        }}
+                        placeholder="e.g. Maharashtra, Karnataka, Uttarakhand"
+                        className="w-full bg-background border border-border rounded-xl px-3.5 py-2.5 text-xs text-foreground outline-none focus:border-primary font-bold"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-muted-foreground mb-1">Postal / Pincode <span className="text-muted-foreground font-normal">(Optional)</span></label>
+                      <input
+                        value={addrForm.pincode}
+                        onChange={e => setAddrForm(prev => ({ ...prev, pincode: e.target.value }))}
+                        placeholder="e.g. 400058"
+                        className="w-full bg-background border border-border rounded-xl px-3.5 py-2.5 text-xs text-foreground outline-none focus:border-primary"
+                      />
+                    </div>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-semibold text-muted-foreground mb-1">Full Name</label>
-                    <input value={userProfile.name} onChange={e => setUserProfile(prev => ({ ...prev, name: e.target.value }))} className="w-full bg-muted border border-border rounded-xl px-4 py-2.5 text-xs text-foreground outline-none focus:border-primary" />
+                    <input 
+                      value={userProfile.name} 
+                      onChange={e => setUserProfile(prev => ({ ...prev, name: e.target.value }))} 
+                      className="w-full bg-background border border-border rounded-xl px-4 py-2.5 text-xs text-foreground outline-none focus:border-primary" 
+                    />
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-muted-foreground mb-1">Email Address</label>
-                    <input value={userProfile.email} onChange={e => setUserProfile(prev => ({ ...prev, email: e.target.value }))} className="w-full bg-muted border border-border rounded-xl px-4 py-2.5 text-xs text-foreground outline-none focus:border-primary" />
+                    <input 
+                      value={userProfile.email} 
+                      onChange={e => setUserProfile(prev => ({ ...prev, email: e.target.value }))} 
+                      className="w-full bg-background border border-border rounded-xl px-4 py-2.5 text-xs text-foreground outline-none focus:border-primary" 
+                    />
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-muted-foreground mb-1">Phone Number</label>
-                    <input value={userProfile.phone} onChange={e => setUserProfile(prev => ({ ...prev, phone: e.target.value }))} className="w-full bg-muted border border-border rounded-xl px-4 py-2.5 text-xs text-foreground outline-none focus:border-primary" />
+                    <input 
+                      value={userProfile.phone || ""} 
+                      onChange={e => {
+                        const val = e.target.value;
+                        setUserProfile(prev => ({ ...prev, phone: val }));
+                      }} 
+                      placeholder="+91 98201 45892" 
+                      className="w-full bg-background border border-border rounded-xl px-4 py-2.5 text-xs text-foreground outline-none focus:border-primary" 
+                    />
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-muted-foreground mb-1">City / Neighborhood</label>
-                    <input value={userProfile.location} onChange={e => setUserProfile(prev => ({ ...prev, location: e.target.value }))} className="w-full bg-muted border border-border rounded-xl px-4 py-2.5 text-xs text-foreground outline-none focus:border-primary" />
+                    <label className="block text-xs font-semibold text-muted-foreground mb-1">City / Neighborhood (Header Display)</label>
+                    <input 
+                      value={userProfile.location || ""} 
+                      onChange={e => {
+                        const val = e.target.value;
+                        setUserProfile(prev => ({ ...prev, location: val }));
+                      }} 
+                      placeholder="e.g. Bandra West, Mumbai" 
+                      className="w-full bg-background border border-border rounded-xl px-4 py-2.5 text-xs text-foreground outline-none focus:border-primary" 
+                    />
                   </div>
                   <div className="sm:col-span-2">
                     <label className="block text-xs font-semibold text-muted-foreground mb-1">Bio</label>
-                    <textarea rows={3} value={userProfile.bio} onChange={e => setUserProfile(prev => ({ ...prev, bio: e.target.value }))} className="w-full bg-muted border border-border rounded-xl px-4 py-2.5 text-xs text-foreground outline-none focus:border-primary" />
+                    <textarea 
+                      rows={3} 
+                      value={userProfile.bio || ""} 
+                      onChange={e => setUserProfile(prev => ({ ...prev, bio: e.target.value }))} 
+                      className="w-full bg-background border border-border rounded-xl px-4 py-2.5 text-xs text-foreground outline-none focus:border-primary" 
+                    />
                   </div>
                 </div>
 
                 <div className="pt-2 flex items-center gap-3">
-                  <button onClick={() => alert("Profile changes saved successfully!")} className="px-6 py-3 bg-primary text-primary-foreground rounded-xl text-xs font-bold uppercase tracking-wider shadow-sm hover:bg-primary/90">
+                  <button onClick={handleSaveProfileChanges} className="px-6 py-3 bg-primary text-primary-foreground rounded-xl text-xs font-bold uppercase tracking-wider shadow-sm hover:bg-primary/90">
                     Save Changes
                   </button>
                   <button onClick={onToggleDark} className="px-4 py-3 bg-muted rounded-xl text-xs font-bold text-foreground flex items-center gap-2">
@@ -2378,11 +3254,43 @@ export default function App() {
   const [page, setPage] = useState<Page>("home");
   const [discoverInitialView, setDiscoverInitialView] = useState<"grid" | "map">("grid");
   
-  // Auth state — persisted in localStorage
-  const [authUser, setAuthUser] = useState<{ name: string; email: string } | null>(() => {
+  // Auth state — persisted in localStorage with avatar support
+  const [authUser, setAuthUser] = useState<{ name: string; email: string; avatar?: string | null } | null>(() => {
     const stored = localStorage.getItem('authUser');
     return stored ? JSON.parse(stored) : null;
   });
+
+  const handleUpdateAuthUser = (updated: { name: string; email: string; avatar?: string | null }) => {
+    setAuthUser(updated);
+    localStorage.setItem('authUser', JSON.stringify(updated));
+  };
+
+  // Active marketplace city — defaults to Mumbai (matches user's registered address)
+  const [activeCity, setActiveCity] = useState<string>(() => {
+    return localStorage.getItem('userActiveCity') || 'Mumbai';
+  });
+
+  const handleSelectCity = (city: string) => {
+    setActiveCity(city);
+    localStorage.setItem('userActiveCity', city);
+  };
+
+  // Sync activeCity with user's saved default address whenever logged in
+  useEffect(() => {
+    if (!authUser?.email) return;
+    const currentHandle = getCleanUserHandle(authUser.name || authUser.email).toLowerCase();
+    const stored = localStorage.getItem(`userAddresses_${currentHandle}`);
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        const def = parsed.find((a: any) => a.isDefault) || parsed[0];
+        if (def && def.city && def.city.trim()) {
+          setActiveCity(def.city.trim());
+          localStorage.setItem('userActiveCity', def.city.trim());
+        }
+      } catch {}
+    }
+  }, [authUser?.email]);
 
   // Products State
   const [productsList, setProductsList] = useState<Product[]>(initialProducts);
@@ -2492,16 +3400,34 @@ export default function App() {
       const existingIds = new Set(dbItems.map((b: any) => String(b.id)));
       const existingNames = new Set(dbItems.map((b: any) => String(b.name).toLowerCase().trim()));
 
+      // Known template item titles that must never appear in the marketplace
+      const templateTitles = new Set([
+        "levi's 501 jeans",
+        "vintage floral kurta",
+        "nike air max 90",
+        "handwoven tote bag",
+        "oversized linen blazer",
+        "wool blend overcoat"
+      ]);
+
+      // Filter out templates and already-synced items from local listings
       const uniqueLocal = localListings.filter(l => 
-        !existingIds.has(String(l.id)) && !existingNames.has(String(l.name).toLowerCase().trim())
+        !templateTitles.has(String(l.name).toLowerCase().trim()) &&
+        !existingIds.has(String(l.id)) && 
+        !existingNames.has(String(l.name).toLowerCase().trim())
       );
 
-      const allUserItems = [...uniqueLocal, ...dbItems];
-      const allItemNames = new Set(allUserItems.map(i => String(i.name).toLowerCase().trim()));
-      const remainingTemplates = defaultMapProducts.filter(t => !allItemNames.has(String(t.name).toLowerCase().trim()));
+      // Clean local storage so user browser cache never reloads template items
+      try {
+        const cleanedLocal = localListings.filter(l => !templateTitles.has(String(l.name).toLowerCase().trim()));
+        localStorage.setItem('localUserListings', JSON.stringify(cleanedLocal));
+      } catch (e) {}
 
-      const combined = [...allUserItems, ...remainingTemplates].filter(item => 
-        !delistedKeys.has(String(item.id)) && !delistedKeys.has(String(item.name).toLowerCase().trim())
+      // Combined marketplace list strictly includes real user listings and database products (no templates)
+      const combined = [...uniqueLocal, ...dbItems].filter(item => 
+        !templateTitles.has(String(item.name).toLowerCase().trim()) &&
+        !delistedKeys.has(String(item.id)) && 
+        !delistedKeys.has(String(item.name).toLowerCase().trim())
       );
       setProductsList(combined);
     }
@@ -2657,9 +3583,9 @@ export default function App() {
 
   const renderPage = () => {
     switch (page) {
-      case "home": return <HomePage productsList={productsList} onNav={goNav} onClickProduct={(p) => setSelectedProduct(p)} />;
-      case "discover": return <DiscoverPage productsList={productsList} initialView={discoverInitialView} onClickProduct={(p) => setSelectedProduct(p)} />;
-      case "map": return <DiscoverPage productsList={productsList} initialView="map" onClickProduct={(p) => setSelectedProduct(p)} />;
+      case "home": return <HomePage productsList={productsList} onNav={goNav} onClickProduct={(p) => setSelectedProduct(p)} activeCity={activeCity} onSelectCity={handleSelectCity} />;
+      case "discover": return <DiscoverPage productsList={productsList} initialView={discoverInitialView} onClickProduct={(p) => setSelectedProduct(p)} activeCity={activeCity} onSelectCity={handleSelectCity} />;
+      case "map": return <DiscoverPage productsList={productsList} initialView="map" onClickProduct={(p) => setSelectedProduct(p)} activeCity={activeCity} onSelectCity={handleSelectCity} />;
       case "login": return <LoginPage onDone={() => goNav("home")} onLogin={handleLogin} />;
       case "camera": return (
         <CameraUploadModal
@@ -2702,9 +3628,12 @@ export default function App() {
           onMarkSold={handleMarkSold}
           onSelectProduct={(p) => setSelectedProduct(p)}
           authUser={authUser}
+          onUpdateAuthUser={handleUpdateAuthUser}
+          activeCity={activeCity}
+          onSelectCity={handleSelectCity}
         />
       );
-      default: return <HomePage productsList={productsList} onNav={goNav} onClickProduct={(p) => setSelectedProduct(p)} />;
+      default: return <HomePage productsList={productsList} onNav={goNav} onClickProduct={(p) => setSelectedProduct(p)} activeCity={activeCity} onSelectCity={handleSelectCity} />;
     }
   };
 
