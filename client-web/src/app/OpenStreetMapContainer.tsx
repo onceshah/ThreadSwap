@@ -130,12 +130,6 @@ export default function OpenStreetMapContainer({
   return (
     <div className="relative w-full h-[580px] rounded-3xl overflow-hidden border border-border shadow-lg">
       <div ref={mapContainerRef} className="w-full h-full z-10" />
-      
-      {/* OsmDroid Map API Header Overlay */}
-      <div className="absolute top-4 left-4 z-20 bg-white/95 backdrop-blur-md px-4 py-2 rounded-2xl border border-border shadow-sm flex items-center gap-2 text-xs font-bold text-foreground">
-        <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-        <span>📍 OsmDroid OpenStreetMap — Andheri West, Mumbai Center</span>
-      </div>
     </div>
   );
 }

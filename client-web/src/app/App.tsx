@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { motion, AnimatePresence } from "motion/react";
+import { motion, AnimatePresence, useScroll, useTransform, useSpring, useMotionValueEvent } from "motion/react";
 import {
   Search, Heart, ShoppingBag, User, Home, MessageCircle,
   ChevronRight, ChevronLeft, Star, MapPin, Package,
@@ -10,7 +10,7 @@ import {
   Shield, HelpCircle, ChevronDown, Upload, Eye, EyeOff,
   AlertCircle, Menu, ExternalLink, TrendingUp, Recycle, MessageSquare, Repeat,
   Trash2, Edit3, Check, Tag, Award, Clock, Sparkles,
-  Loader2, Navigation, Compass
+  Loader2, Navigation, Compass, Truck, ArrowUpRight, ShieldCheck
 } from "lucide-react";
 import { 
   fetchProductsFromBackend, loginBackend, registerBackend, createListingBackend, 
@@ -60,14 +60,14 @@ const categories = ["All", "Tops", "Bottoms", "Footwear", "Ethnic", "Accessories
 
 const fmt = (n: number) => n === 0 ? "FREE" : `₹${n.toLocaleString("en-IN")}`;
 const condColor: Record<string, string> = {
-  "Brand New": "bg-emerald-100 text-emerald-700",
-  "Gently Used": "bg-amber-100 text-amber-700",
-  "Well Worn": "bg-orange-100 text-orange-700",
+  "Brand New": "bg-[#879A77] text-white",
+  "Gently Used": "bg-[#C9AD93]/40 text-[#554940]",
+  "Well Worn": "bg-[#73787C]/20 text-[#554940]",
 };
 const typeColor: Record<string, string> = {
-  "Sell": "bg-blue-100 text-blue-700",
-  "Exchange": "bg-purple-100 text-purple-700",
-  "Free/Donate": "bg-green-100 text-green-700",
+  "Sell": "bg-[#D7E5F0] text-[#554940] border border-[#C5C6C7]/60",
+  "Exchange": "bg-[#879A77]/20 text-[#554940] border border-[#879A77]/40",
+  "Free/Donate": "bg-[#C9AD93]/30 text-[#554940] border border-[#C9AD93]/50",
 };
 
 // Helper to filter listings by user's city based on location string or coordinates
@@ -115,89 +115,358 @@ export function isProductInCity(p: Product, city?: string): boolean {
   return false;
 }
 
-// ─── TOP NAV ─────────────────────────────────────────────────────────────────
+// ─── INTRO SPLASH ANIMATION ──────────────────────────────────────────────────
 
-function TopNav({ page, onNav, darkMode, onToggleDark, unread, authUser, onLogout }: {
+// ─── INTRO SPLASH ANIMATION (LOGO -> FULL-SCREEN THREADSWAP -> DOCK TO HEADER) ──
+
+function IntroSplash({ onFinish }: { onFinish: () => void }) {
+  const [stage, setStage] = useState<"logo" | "text" | "docking">("logo");
+  const [targetOffset, setTargetOffset] = useState({ y: -300, x: 0 });
+  const isMobile = typeof window !== "undefined" && window.innerWidth < 640;
+  const heroScale = isMobile ? 1.65 : 2.25;
+
+  useEffect(() => {
+    // 1. Logo stage -> Text stage at 1200ms
+    const t1 = setTimeout(() => {
+      setStage("text");
+    }, 1200);
+
+    // 2. Text stage -> Docking stage at 2500ms
+    const t2 = setTimeout(() => {
+      const headerEl = document.getElementById("header-threadswap-title");
+      if (headerEl) {
+        const rect = headerEl.getBoundingClientRect();
+        const deltaY = (rect.top + rect.height / 2) - (window.innerHeight / 2);
+        const deltaX = (rect.left + rect.width / 2) - (window.innerWidth / 2);
+        setTargetOffset({ y: deltaY, x: deltaX });
+      } else {
+        setTargetOffset({ y: -(window.innerHeight / 2 - 44), x: 0 });
+      }
+      setStage("docking");
+    }, 2500);
+
+    // 3. Docking completes at 3350ms -> site is live
+    const t3 = setTimeout(() => {
+      onFinish();
+    }, 3350);
+
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+    };
+  }, [onFinish]);
+
+  return (
+    <div
+      onClick={onFinish}
+      className="fixed inset-0 z-[99999] select-none cursor-pointer overflow-hidden pointer-events-auto"
+    >
+      {/* Background layer - smoothly fades out during docking to reveal the site beneath */}
+      <motion.div
+        initial={{ opacity: 1 }}
+        animate={{ opacity: stage === "docking" ? 0 : 1 }}
+        transition={{ duration: 0.75, ease: "easeInOut" }}
+        className="absolute inset-0 bg-[#FAF8F5] dark:bg-[#111213]"
+      >
+        {/* Ambient background glow */}
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[540px] h-[540px] rounded-full bg-gradient-to-tr from-[#879A77]/25 via-[#C9AD93]/20 to-transparent blur-3xl pointer-events-none animate-pulse" />
+      </motion.div>
+
+      {/* Stage 1: Logo (borderless) */}
+      <AnimatePresence>
+        {stage === "logo" && (
+          <motion.div
+            key="intro-logo"
+            initial={{ opacity: 0, scale: 0.6, y: 15 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ 
+              opacity: 0, 
+              scale: 0.85, 
+              filter: "blur(4px)",
+              transition: { duration: 0.45, ease: [0.32, 0, 0.67, 0] } 
+            }}
+            transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
+            className="absolute inset-0 flex items-center justify-center pointer-events-none"
+          >
+            <div className="relative flex items-center justify-center">
+              <div className="w-36 h-36 md:w-44 md:h-44 p-6 rounded-3xl bg-card/85 dark:bg-card/35 backdrop-blur-md shadow-2xl flex items-center justify-center overflow-visible">
+                <img 
+                  src="/logo.png" 
+                  alt="ThreadSwap Logo" 
+                  className="w-full h-full object-contain dark:invert filter drop-shadow-md" 
+                />
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Stage 2 & 3: Full-screen ThreadSwap -> Glides to Header Center */}
+      {(stage === "text" || stage === "docking") && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none overflow-visible">
+          <motion.div
+            initial={{ opacity: 0, scale: 1.2, filter: "blur(8px)" }}
+            animate={
+              stage === "text"
+                ? { opacity: 1, scale: heroScale, x: 0, y: 0, filter: "blur(0px)" }
+                : { opacity: 1, scale: 1, x: targetOffset.x, y: targetOffset.y, filter: "blur(0px)" }
+            }
+            transition={
+              stage === "text"
+                ? { duration: 0.65, ease: [0.16, 1, 0.3, 1] }
+                : { duration: 0.82, ease: [0.16, 1, 0.3, 1] }
+            }
+            style={{ transformOrigin: "center center" }}
+            className="overflow-visible"
+          >
+            <span 
+              style={{ 
+                fontFamily: "'Amsterdam One', 'Amsterdam', cursive", 
+                fontWeight: 400, 
+                fontSize: "35px", 
+                lineHeight: 1.6,
+                letterSpacing: "0.01em",
+                display: "inline-block",
+                paddingTop: "16px",
+                paddingBottom: "4px",
+                paddingLeft: "6px",
+                paddingRight: "14px",
+                overflow: "visible"
+              }} 
+              className="text-foreground select-none inline-block whitespace-nowrap drop-shadow-sm"
+            >
+              ThreadSwap
+            </span>
+          </motion.div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── TOP NAV (DYNAMIC ON SCROLL: CENTER -> FULLY TO SIDE & SCALES DOWN) ──────
+
+function TopNav({ page, onNav, canGoBack, onGoBack, isSplashActive }: {
+  page: Page; onNav: (p: Page, mode?: string) => void;
+  canGoBack?: boolean;
+  onGoBack?: () => void;
+  isSplashActive?: boolean;
+}) {
+  const { scrollY } = useScroll();
+
+  const hasBack = Boolean(canGoBack && onGoBack && page !== "home");
+  const targetLeftPx = hasBack ? 72 : 24;
+
+  // Fluid physics spring: extended range (0 - 240px) + tuned spring for butter-smooth transition
+  const rawProgress = useTransform(scrollY, [0, 240], [0, 1]);
+  const smoothP = useSpring(rawProgress, {
+    stiffness: 140,
+    damping: 22,
+    mass: 0.2,
+    restDelta: 0.0005
+  });
+
+  // Pure GPU translateX:
+  // At p=0: -50% (dead center)
+  // At p=1: -50vw + targetLeftPx (fully on the left)
+  const x = useTransform(
+    smoothP,
+    p => {
+      const clampedP = Math.min(Math.max(p, 0), 1);
+      return `calc(-50% * ${(1 - clampedP).toFixed(4)} - 50vw * ${clampedP.toFixed(4)} + ${(targetLeftPx * clampedP).toFixed(2)}px)`;
+    }
+  );
+  const scale = useTransform(smoothP, [0, 1], [1, 0.72]);
+  const y = useTransform(smoothP, [0, 1], [0, -4]);
+  const bgOpacity = useTransform(smoothP, [0, 0.15], [0, 0.92]);
+
+  return (
+    <header className="sticky top-0 z-40 w-full overflow-visible">
+      {/* Background layer animated via GPU opacity (no React re-renders) */}
+      <motion.div 
+        className="absolute inset-0 bg-background/90 backdrop-blur-md pointer-events-none"
+        style={{ opacity: bgOpacity }}
+      />
+
+      <div 
+        className="w-full px-4 sm:px-6 md:px-8 relative overflow-visible flex items-center h-[78px]"
+      >
+        {/* On sub-pages, allow top-left back button */}
+        {hasBack && (
+          <button 
+            onClick={onGoBack} 
+            aria-label="Go Back"
+            className="absolute left-4 md:left-6 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-foreground bg-muted/80 hover:bg-muted border border-border/50 transition-all shadow-xs group"
+            style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}
+          >
+            <ChevronLeft size={16} className="text-primary transition-transform group-hover:-translate-x-0.5" />
+            <span className="hidden sm:inline">Back</span>
+          </button>
+        )}
+
+        {/* Dynamic ThreadSwap: Center -> FULLY TO SIDE with GPU transform & spring smoothness */}
+        <motion.div
+          id="header-threadswap-title"
+          className="absolute left-1/2 z-10 flex items-center pointer-events-auto overflow-visible"
+          style={{
+            x,
+            y,
+            top: "16px",
+            scale,
+            transformOrigin: "left center",
+            opacity: isSplashActive ? 0 : 1
+          }}
+        >
+          <button onClick={() => onNav("home")} className="group px-2 py-0.5 overflow-visible focus:outline-none">
+            <span 
+              style={{ 
+                fontFamily: "'Amsterdam One', 'Amsterdam', cursive", 
+                fontWeight: 400, 
+                fontSize: "35px", 
+                lineHeight: 1.6,
+                letterSpacing: "0.01em",
+                display: "inline-block",
+                paddingTop: "16px",
+                paddingBottom: "4px",
+                paddingLeft: "6px",
+                paddingRight: "14px",
+                overflow: "visible"
+              }} 
+              className="text-foreground select-none inline-block whitespace-nowrap group-hover:opacity-80 transition-opacity"
+            >
+              ThreadSwap
+            </span>
+          </button>
+        </motion.div>
+      </div>
+    </header>
+  );
+}
+
+// ─── BOTTOM CONTROLS BAR (TRANSLUCENT ACCENT BLUE #D7E5F0) ────────────────────
+
+function BottomControlsBar({ page, onNav, darkMode, onToggleDark, unread, authUser, onLogout, canGoBack, onGoBack }: {
   page: Page; onNav: (p: Page, mode?: string) => void; darkMode: boolean; onToggleDark: () => void; unread: number;
   authUser: { name: string; email: string; avatar?: string | null } | null;
   onLogout: () => void;
+  canGoBack?: boolean;
+  onGoBack?: () => void;
 }) {
   const [showUserMenu, setShowUserMenu] = useState(false);
 
   return (
-    <header className="sticky top-0 z-50 bg-card border-b border-border backdrop-blur-sm shadow-xs">
-      <div className="max-w-7xl mx-auto px-6 h-16 flex items-center gap-6">
-        {/* logo */}
-        <button onClick={() => onNav("home")} className="flex items-center gap-2.5 flex-shrink-0">
-          <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center shadow-sm">
-            <RefreshCw size={16} className="text-white" />
-          </div>
-          <span style={{ fontFamily: "'Plus Jakarta Sans'", fontWeight: 800, fontSize: "18px" }} className="text-foreground">ThreadSwap</span>
-        </button>
+    <div className="fixed bottom-3 md:bottom-5 left-0 right-0 z-50 pointer-events-none flex justify-center px-3">
+      <div className="pointer-events-auto bg-[#D7E5F0]/50 dark:bg-[#132232]/50 backdrop-blur-2xl backdrop-saturate-[190%] border border-white/65 dark:border-white/15 shadow-[inset_0_1px_1px_0_rgba(255,255,255,0.75),0_12px_40px_rgba(150,185,220,0.35)] dark:shadow-[inset_0_1px_1px_0_rgba(255,255,255,0.12),0_16px_45px_rgba(0,0,0,0.65)] rounded-2xl md:rounded-full px-3 md:px-5 py-2 flex items-center gap-2 md:gap-3 max-w-4xl w-full justify-between transition-all">
+        {/* Left Section: Back Button (if applicable) & Navigation Links */}
+        <div className="flex items-center gap-1.5 md:gap-2">
+          {canGoBack && onGoBack && (
+            <button
+              onClick={onGoBack}
+              aria-label="Go Back"
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold text-[#1f3042] dark:text-[#E2EEF8] bg-white/55 dark:bg-white/10 hover:bg-white/80 dark:hover:bg-white/15 border border-white/70 dark:border-white/15 transition-all shadow-xs group"
+              style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}
+              title="Go Back"
+            >
+              <ChevronLeft size={16} className="text-primary transition-transform group-hover:-translate-x-0.5" />
+              <span className="hidden sm:inline">Back</span>
+            </button>
+          )}
 
-        {/* search bar */}
-        <div className="flex-1 max-w-md">
-          <div className="flex items-center gap-2 bg-muted rounded-xl px-4 py-2">
-            <Search size={15} className="text-muted-foreground flex-shrink-0" />
-            <input placeholder="Search brands, items near you..." className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none" style={{ fontFamily: "'Inter'" }} />
-          </div>
+          <button
+            onClick={() => onNav("home")}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold transition-all ${page === "home" ? "bg-primary text-primary-foreground shadow-xs" : "text-[#35495c] dark:text-[#BDD1E5] hover:text-[#111e2b] dark:hover:text-white hover:bg-white/45 dark:hover:bg-white/10"}`}
+            style={{ fontFamily: "'Inter'" }}
+          >
+            <Home size={15} />
+            <span className="hidden md:inline">Home</span>
+          </button>
+
+          <button
+            onClick={() => onNav("discover", "grid")}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold transition-all ${page === "discover" ? "bg-primary text-primary-foreground shadow-xs" : "text-[#35495c] dark:text-[#BDD1E5] hover:text-[#111e2b] dark:hover:text-white hover:bg-white/45 dark:hover:bg-white/10"}`}
+            style={{ fontFamily: "'Inter'" }}
+          >
+            <Grid3X3 size={15} />
+            <span className="hidden md:inline">Discover</span>
+          </button>
+
+          <button
+            onClick={() => onNav("map", "map")}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold transition-all ${page === "map" ? "bg-primary text-primary-foreground shadow-xs" : "text-[#35495c] dark:text-[#BDD1E5] hover:text-[#111e2b] dark:hover:text-white hover:bg-white/45 dark:hover:bg-white/10"}`}
+            style={{ fontFamily: "'Inter'" }}
+          >
+            <MapIcon size={15} />
+            <span className="hidden md:inline">Map</span>
+          </button>
         </div>
 
-        {/* nav links */}
-        <nav className="hidden md:flex items-center gap-1.5">
-          <button onClick={() => onNav("discover", "grid")} className={`px-3.5 py-2 rounded-xl text-sm font-semibold transition-all ${page === "discover" ? "bg-primary text-primary-foreground shadow-xs" : "text-muted-foreground hover:text-foreground hover:bg-muted"}`} style={{ fontFamily: "'Inter'" }}>
-            Discover
+        {/* Center: List an Item CTA */}
+        <div className="flex items-center">
+          <button
+            onClick={() => onNav("camera")}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 bg-primary text-primary-foreground rounded-xl text-xs font-bold shadow-md hover:scale-105 active:scale-95 transition-all"
+            style={{ fontFamily: "'Plus Jakarta Sans'" }}
+          >
+            <Camera size={15} />
+            <span className="whitespace-nowrap">List Item</span>
           </button>
-          <button onClick={() => onNav("map", "map")} className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-semibold transition-all ${page === "map" ? "bg-primary text-primary-foreground shadow-xs" : "bg-muted/70 text-foreground hover:bg-muted"}`} style={{ fontFamily: "'Inter'" }}>
-            <MapIcon size={15} className={page === "map" ? "text-white" : "text-primary"} />
-            <span>OsmDroid Map</span>
-          </button>
-          <button onClick={() => onNav("inbox")} className={`px-3.5 py-2 rounded-xl text-sm font-semibold transition-all relative flex items-center gap-1.5 ${page === "inbox" || page === "chat" ? "bg-primary text-primary-foreground shadow-xs" : "text-muted-foreground hover:text-foreground hover:bg-muted"}`} style={{ fontFamily: "'Inter'" }}>
-            <span>Messages</span>
+        </div>
+
+        {/* Right Section: Messages, Search, Theme & Profile */}
+        <div className="flex items-center gap-1.5 md:gap-2">
+          {/* Glassy Search bar */}
+          <div className="hidden lg:flex items-center gap-1.5 bg-white/45 dark:bg-white/5 rounded-xl px-2.5 py-1.5 w-28 focus-within:w-40 border border-white/55 dark:border-white/10 shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)] backdrop-blur-md transition-all">
+            <Search size={13} className="text-[#485f76] dark:text-[#9bb1c7] flex-shrink-0" />
+            <input placeholder="Search..." className="w-full bg-transparent text-xs text-[#111e2b] dark:text-[#F2F2F2] placeholder:text-[#5f7992] dark:placeholder:text-[#8ba2b8] outline-none" style={{ fontFamily: "'Inter'" }} />
+          </div>
+
+          {/* Messages */}
+          <button
+            onClick={() => onNav("inbox")}
+            className={`relative flex items-center justify-center w-8 h-8 rounded-xl transition-all ${page === "inbox" || page === "chat" ? "bg-primary text-primary-foreground shadow-xs" : "text-[#2b3e51] dark:text-[#BDD1E5] hover:bg-white/45 dark:hover:bg-white/10"}`}
+            title="Messages"
+          >
+            <MessageCircle size={16} />
             {unread > 0 && (
-              <span className="px-1.5 py-0.5 text-[10px] font-extrabold bg-red-500 text-white rounded-full leading-none">
-                {unread}
-              </span>
+              <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full ring-2 ring-card animate-pulse" />
             )}
           </button>
-          <button onClick={() => onNav("camera")} className="px-3.5 py-2 rounded-xl text-sm font-semibold text-foreground hover:bg-muted transition-all" style={{ fontFamily: "'Inter'" }}>
-            List an Item
-          </button>
-        </nav>
 
-        {/* right controls */}
-        <div className="flex items-center gap-2 ml-auto md:ml-0">
-          <button onClick={() => onNav("inbox")} className="relative w-9 h-9 rounded-xl flex items-center justify-center hover:bg-muted transition-colors">
-            <MessageCircle size={18} className="text-foreground" />
-            {unread > 0 && <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 rounded-full ring-2 ring-card animate-pulse" />}
-          </button>
-          <button onClick={onToggleDark} className="w-9 h-9 rounded-xl flex items-center justify-center hover:bg-muted transition-colors">
-            {darkMode ? <Sun size={18} className="text-foreground" /> : <Moon size={18} className="text-foreground" />}
+          {/* Dark mode toggle */}
+          <button
+            onClick={onToggleDark}
+            className="w-8 h-8 rounded-xl flex items-center justify-center hover:bg-white/45 dark:hover:bg-white/10 transition-colors text-[#2b3e51] dark:text-[#BDD1E5]"
+            title="Toggle theme"
+          >
+            {darkMode ? <Sun size={16} /> : <Moon size={16} />}
           </button>
 
+          {/* User profile / Sign in */}
           {authUser ? (
             <div className="relative">
               <button
                 onClick={() => setShowUserMenu(v => !v)}
-                className="flex items-center gap-2 pl-1 pr-3 py-1 rounded-full bg-primary/10 border border-primary/20 hover:bg-primary/15 transition-colors"
+                className="flex items-center gap-1.5 pl-1 pr-2 py-1 rounded-full bg-primary/15 border border-primary/25 hover:bg-primary/20 transition-colors"
               >
-                <div className="w-7 h-7 rounded-full overflow-hidden border border-primary/30 flex-shrink-0 bg-primary/20 flex items-center justify-center">
+                <div className="w-6 h-6 rounded-full overflow-hidden border border-primary/30 flex-shrink-0 bg-primary/20 flex items-center justify-center">
                   {authUser.avatar ? (
                     <img src={authUser.avatar} alt="avatar" className="w-full h-full object-cover" />
                   ) : (
-                    <span className="text-[10px] font-bold text-primary">
+                    <span className="text-[9px] font-bold text-primary">
                       {authUser.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
                     </span>
                   )}
                 </div>
-                <span className="text-xs font-bold text-foreground hidden md:block" style={{ fontFamily: "'Plus Jakarta Sans'" }}>
+                <span className="text-xs font-bold text-[#1d2b38] dark:text-foreground hidden sm:block" style={{ fontFamily: "'Plus Jakarta Sans'" }}>
                   {authUser.name.split(' ')[0]}
                 </span>
-                <ChevronDown size={12} className="text-muted-foreground" />
+                <ChevronDown size={11} className="text-[#51667b] dark:text-muted-foreground" />
               </button>
+
               {showUserMenu && (
-                <div className="absolute right-0 top-full mt-2 w-48 bg-card border border-border rounded-2xl shadow-lg overflow-hidden z-50">
-                  <div className="px-4 py-3 border-b border-border">
+                <div className="absolute right-0 bottom-full mb-2 w-48 bg-[#D7E5F0]/85 dark:bg-[#152332]/85 backdrop-blur-2xl border border-white/60 dark:border-white/12 rounded-2xl shadow-2xl overflow-hidden z-50">
+                  <div className="px-4 py-3 border-b border-white/40 dark:border-white/10">
                     <p className="text-xs font-bold text-foreground">{authUser.name}</p>
                     <p className="text-[10px] text-muted-foreground">{authUser.email}</p>
                   </div>
@@ -222,18 +491,17 @@ function TopNav({ page, onNav, darkMode, onToggleDark, unread, authUser, onLogou
               )}
             </div>
           ) : (
-            <>
-              <button onClick={() => onNav("profile")} className="w-9 h-9 rounded-full overflow-hidden border-2 border-border flex-shrink-0">
-                <img src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=60&h=60&fit=crop&auto=format" alt="avatar" className="w-full h-full object-cover" />
-              </button>
-              <button onClick={() => onNav("login")} className="hidden md:flex px-4 py-2 bg-primary text-primary-foreground rounded-xl text-sm font-bold items-center gap-1.5 shadow-sm" style={{ fontFamily: "'Plus Jakarta Sans'" }}>
-                Sign In
-              </button>
-            </>
+            <button
+              onClick={() => onNav("login")}
+              className="px-3 py-1.5 bg-primary text-primary-foreground rounded-xl text-xs font-bold shadow-xs hover:bg-primary/90 transition-all"
+              style={{ fontFamily: "'Plus Jakarta Sans'" }}
+            >
+              Sign In
+            </button>
           )}
         </div>
       </div>
-    </header>
+    </div>
   );
 }
 
@@ -258,16 +526,17 @@ function SellerProfileModal({ sellerName, sellerAvatar, products, onClose, onSta
            sEmail === targetClean;
   });
 
-  const reviews = mockReviews[sellerName] || [
-    { id: 1, reviewer: "Ananya R.", avatar: "AR", rating: 5, date: "1 week ago", comment: "Item received in perfect condition. Great communication!" }
-  ];
+  const reviews = mockReviews[sellerName] || [];
+  const averageRating = reviews.length > 0 
+    ? (reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length).toFixed(1)
+    : null;
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
       <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="bg-card w-full max-w-3xl rounded-3xl border border-border shadow-2xl overflow-hidden relative max-h-[90vh] flex flex-col">
         
         {/* Header */}
-        <div className="p-6 bg-primary text-primary-foreground relative flex items-center justify-between">
+        <div className="p-6 bg-[#554940] text-white relative flex items-center justify-between border-b border-[#C5C6C7]/40">
           <div className="flex items-center gap-4">
             <div className="w-16 h-16 rounded-2xl bg-white/20 border-2 border-white/40 flex items-center justify-center font-bold text-xl text-white shadow-md">
               {sellerAvatar || sellerName.slice(0, 2).toUpperCase()}
@@ -279,11 +548,18 @@ function SellerProfileModal({ sellerName, sellerAvatar, products, onClose, onSta
                   <Shield size={10} /> Verified Seller
                 </span>
               </div>
-              <p className="text-white/80 text-xs mt-0.5" style={{ fontFamily: "'Inter'" }}>📍 Andheri West, Mumbai · Member since 2025</p>
-              <div className="flex items-center gap-1 mt-1 text-amber-300 text-xs font-bold">
-                <Star size={13} className="fill-amber-300 text-amber-300" />
-                <span>4.8 ({sellerProducts.length * 5 + 12} reviews)</span>
-              </div>
+              <p className="text-white/80 text-xs mt-0.5" style={{ fontFamily: "'Inter'" }}>📍 Verified Member · Community Swapper</p>
+              {reviews.length > 0 && averageRating ? (
+                <div className="flex items-center gap-1 mt-1 text-amber-300 text-xs font-bold">
+                  <Star size={13} className="fill-amber-300 text-amber-300" />
+                  <span>{averageRating} ({reviews.length} {reviews.length === 1 ? 'review' : 'reviews'})</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1 mt-1 text-white/85 text-xs font-medium">
+                  <Shield size={11} className="text-[#879A77]" />
+                  <span>New Member · No reviews yet</span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -345,31 +621,39 @@ function SellerProfileModal({ sellerName, sellerAvatar, products, onClose, onSta
               Ratings & Reviews ({reviews.length})
             </h3>
 
-            <div className="space-y-3">
-              {reviews.map(rev => (
-                <div key={rev.id} className="p-3.5 rounded-2xl bg-muted/30 border border-border space-y-1">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="w-6 h-6 rounded-full bg-primary/20 text-primary text-[10px] font-bold flex items-center justify-center">
-                        {rev.avatar}
+            {reviews.length === 0 ? (
+              <div className="p-6 rounded-2xl bg-muted/40 border border-border text-center text-muted-foreground space-y-1">
+                <Star size={20} className="mx-auto text-muted-foreground/40 mb-1" />
+                <p className="text-xs font-bold text-foreground">No Ratings Yet</p>
+                <p className="text-[11px]">Peer ratings and feedback will appear here once this member completes verified wardrobe handoffs.</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {reviews.map(rev => (
+                  <div key={rev.id} className="p-3.5 rounded-2xl bg-muted/30 border border-border space-y-1">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="w-6 h-6 rounded-full bg-primary/20 text-primary text-[10px] font-bold flex items-center justify-center">
+                          {rev.avatar}
+                        </div>
+                        <span className="text-xs font-bold text-foreground">{rev.reviewer}</span>
                       </div>
-                      <span className="text-xs font-bold text-foreground">{rev.reviewer}</span>
+                      <span className="text-[10px] text-muted-foreground">{rev.date}</span>
                     </div>
-                    <span className="text-[10px] text-muted-foreground">{rev.date}</span>
-                  </div>
 
-                  <div className="flex items-center gap-1 text-amber-400">
-                    {[...Array(5)].map((_, i) => (
-                      <Star key={i} size={11} className={i < rev.rating ? "fill-amber-400 text-amber-400" : "text-border"} />
-                    ))}
-                  </div>
+                    <div className="flex items-center gap-1 text-amber-400">
+                      {[...Array(5)].map((_, i) => (
+                        <Star key={i} size={11} className={i < rev.rating ? "fill-amber-400 text-amber-400" : "text-border"} />
+                      ))}
+                    </div>
 
-                  <p className="text-xs text-muted-foreground leading-relaxed pt-1" style={{ fontFamily: "'Inter'" }}>
-                    "{rev.comment}"
-                  </p>
-                </div>
-              ))}
-            </div>
+                    <p className="text-xs text-muted-foreground leading-relaxed pt-1" style={{ fontFamily: "'Inter'" }}>
+                      "{rev.comment}"
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
         </div>
@@ -548,9 +832,15 @@ function ProductDetailModal({ product, onClose, onStartChat, onViewSellerProfile
                   </div>
                   <div>
                     <h4 className="text-xs font-bold text-foreground group-hover:text-primary transition-colors">{product.seller} {isOwnItem ? "(You)" : ""}</h4>
-                    <span className="text-[10px] text-muted-foreground flex items-center gap-1">
-                      <Star size={10} className="fill-amber-400 text-amber-400" /> 4.8 ({product.reviews} reviews)
-                    </span>
+                    {product.reviews > 0 && product.rating > 0 ? (
+                      <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                        <Star size={10} className="fill-amber-400 text-amber-400" /> {product.rating.toFixed(1)} ({product.reviews} {product.reviews === 1 ? 'review' : 'reviews'})
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                        <Shield size={10} className="text-[#879A77]" /> Verified Community Member
+                      </span>
+                    )}
                   </div>
                 </div>
                 <span className="text-[11px] font-bold text-primary flex items-center gap-0.5">
@@ -618,59 +908,626 @@ function ProductDetailModal({ product, onClose, onStartChat, onViewSellerProfile
   );
 }
 
-// ─── PRODUCT CARD ─────────────────────────────────────────────────────────────
+// ─── THREADSWAP WISHLIST ICON (LOGO WITH RED-FILLED CIRCLE ON WISHLIST) ──────
+
+function ThreadSwapWishlistIcon({ 
+  wishlisted, 
+  size = 15,
+  className = "" 
+}: { 
+  wishlisted: boolean; 
+  size?: number; 
+  className?: string; 
+}) {
+  return (
+    <svg 
+      xmlns="http://www.w3.org/2000/svg" 
+      viewBox="0 0 100 100" 
+      width={size} 
+      height={size} 
+      className={`inline-block transition-transform duration-200 ${wishlisted ? "scale-110" : "hover:scale-105"} ${className}`}
+      style={{ overflow: "visible" }}
+    >
+      {/* Circle center fill: turns solid bright red when wishlisted, transparent when not */}
+      <path 
+        d="M48.79 54.86L51.31 54.86L52.24 54.95L52.8 55.04L53.36 55.14L54.48 55.42L55.61 55.79L56.07 55.98L56.73 56.26L57.29 56.54L58.13 57.01L58.97 57.57L59.34 57.85L59.81 58.22L60.46 58.78L61.68 60.0L62.24 60.65L62.52 61.02L62.8 61.4L62.99 61.68L63.17 61.96L63.45 62.42L63.83 63.08L64.2 63.83L64.39 64.29L64.57 64.76L64.95 65.88L65.23 67.0L65.32 67.47L65.41 68.03L65.51 68.87L65.51 71.67L65.41 72.33L65.32 72.89L65.23 73.35L65.13 73.73L65.04 74.1L64.85 74.76L64.57 75.6L64.39 76.06L63.45 77.93L62.7 79.05L62.42 79.43L62.05 79.89L61.49 80.55L60.65 81.39L60.0 81.95L59.53 82.32L59.15 82.6L58.03 83.35L57.19 83.82L56.63 84.1L55.98 84.38L55.51 84.56L54.39 84.94L53.27 85.22L52.8 85.31L52.24 85.41L51.31 85.5L48.13 85.5L47.29 85.41L46.73 85.31L46.26 85.22L45.8 85.13L45.14 84.94L44.49 84.75L44.21 84.66L43.74 84.47L42.9 84.1L42.34 83.82L41.69 83.44L41.22 83.16L40.94 82.98L40.28 82.51L39.82 82.14L39.07 81.48L38.42 80.83L37.76 80.08L37.3 79.52L37.01 79.15L36.45 78.31L36.17 77.84L35.8 77.18L35.24 75.97L34.96 75.22L34.68 74.38L34.59 74.01L34.49 73.63L34.4 73.17L34.31 72.61L34.21 72.05L34.12 70.83L34.12 70.18L34.21 68.78L34.31 68.22L34.4 67.66L34.49 67.19L34.59 66.72L34.77 66.16L35.24 64.76L35.52 64.11L36.08 62.99L36.36 62.52L36.64 62.05L36.83 61.77L37.67 60.65L38.32 59.9L39.26 58.97L39.91 58.41L40.66 57.85L41.03 57.57L41.78 57.1L42.25 56.82L43.55 56.17L44.02 55.98L44.49 55.79L44.77 55.7L45.05 55.61L46.36 55.23L46.82 55.14L47.29 55.04L47.94 54.95Z" 
+        fill={wishlisted ? "#EF4444" : "transparent"} 
+      />
+
+      {/* Circle ring: filled with red on wishlist, currentColor when not */}
+      <path 
+        d="M48.6 46.64L47.57 46.73L46.73 46.82L46.17 46.92L44.68 47.2L43.55 47.48L42.9 47.66L42.34 47.85L41.5 48.13L40.75 48.41L40.28 48.6L38.88 49.25L37.67 49.91L37.2 50.19L36.73 50.47L35.61 51.21L34.49 52.06L33.93 52.52L33.18 53.18L32.16 54.2L31.22 55.23L30.85 55.7L30.48 56.17L30.2 56.54L29.92 56.91L28.79 58.59L28.33 59.44L27.49 61.12L26.93 62.52L26.37 64.2L26.18 64.85L26.08 65.23L25.9 66.07L25.8 66.54L25.71 67.0L25.62 67.56L25.52 68.31L25.43 69.71L25.43 71.11L25.52 71.21L25.52 72.7L25.62 73.45L25.71 74.1L25.8 74.57L25.9 75.04L26.08 75.88L26.18 76.25L26.27 76.62L26.83 78.31L27.02 78.77L27.21 79.24L27.49 79.89L27.77 80.45L28.23 81.39L28.89 82.51L29.63 83.63L30.1 84.28L30.48 84.75L30.85 85.22L31.5 85.97L32.81 87.27L33.56 87.93L34.12 88.39L35.61 89.52L35.89 89.7L36.17 89.89L36.92 90.36L37.76 90.82L39.63 91.76L41.03 92.32L41.59 92.51L42.43 92.79L43.46 93.07L44.3 93.25L44.77 93.35L45.33 93.44L45.89 93.53L46.64 93.63L47.48 93.72L49.07 93.81L50.65 93.81L52.24 93.72L52.99 93.63L53.74 93.53L54.3 93.44L55.7 93.16L56.82 92.88L57.75 92.6L58.59 92.32L60.0 91.76L61.4 91.1L62.24 90.64L62.89 90.26L63.64 89.8L63.92 89.61L64.2 89.42L64.85 88.96L65.32 88.58L65.88 88.11L66.44 87.65L68.03 86.06L68.68 85.31L69.15 84.75L69.71 84.0L69.99 83.63L70.08 83.35L70.37 83.07L70.83 82.32L71.11 81.86L72.05 79.99L72.42 79.15L72.7 78.4L72.7 78.12L72.98 77.56L73.07 77.28L73.26 76.62L73.35 76.25L73.63 75.04L73.73 74.57L73.82 73.92L73.92 73.26L74.01 72.42L74.01 68.31L73.92 67.38L73.82 66.72L73.73 66.07L73.54 65.32L73.35 64.48L73.26 64.11L73.17 63.73L72.61 62.05L72.33 61.3L72.05 60.65L70.93 58.41L70.65 57.94L70.27 57.38L69.71 56.54L69.24 55.89L68.78 55.32L68.4 54.86L67.66 54.02L66.54 52.9L65.6 52.06L65.13 51.68L64.76 51.4L64.39 51.12L63.73 50.65L62.7 50.0L62.24 49.72L61.4 49.25L61.21 49.16L59.81 48.51L59.34 48.32L58.87 48.13L57.19 47.57L56.54 47.38L56.17 47.29L54.86 47.01L54.3 46.92L53.74 46.82L52.99 46.73L51.87 46.64Z M48.79 54.86L51.31 54.86L52.24 54.95L52.8 55.04L53.36 55.14L54.48 55.42L55.61 55.79L56.07 55.98L56.73 56.26L57.29 56.54L58.13 57.01L58.97 57.57L59.34 57.85L59.81 58.22L60.46 58.78L61.68 60.0L62.24 60.65L62.52 61.02L62.8 61.4L62.99 61.68L63.17 61.96L63.45 62.42L63.83 63.08L64.2 63.83L64.39 64.29L64.57 64.76L64.95 65.88L65.23 67.0L65.32 67.47L65.41 68.03L65.51 68.87L65.51 71.67L65.41 72.33L65.32 72.89L65.23 73.35L65.13 73.73L65.04 74.1L64.85 74.76L64.57 75.6L64.39 76.06L63.45 77.93L62.7 79.05L62.42 79.43L62.05 79.89L61.49 80.55L60.65 81.39L60.0 81.95L59.53 82.32L59.15 82.6L58.03 83.35L57.19 83.82L56.63 84.1L55.98 84.38L55.51 84.56L54.39 84.94L53.27 85.22L52.8 85.31L52.24 85.41L51.31 85.5L48.13 85.5L47.29 85.41L46.73 85.31L46.26 85.22L45.8 85.13L45.14 84.94L44.49 84.75L44.21 84.66L43.74 84.47L42.9 84.1L42.34 83.82L41.69 83.44L41.22 83.16L40.94 82.98L40.28 82.51L39.82 82.14L39.07 81.48L38.42 80.83L37.76 80.08L37.3 79.52L37.01 79.15L36.45 78.31L36.17 77.84L35.8 77.18L35.24 75.97L34.96 75.22L34.68 74.38L34.59 74.01L34.49 73.63L34.4 73.17L34.31 72.61L34.21 72.05L34.12 70.83L34.12 70.18L34.21 68.78L34.31 68.22L34.4 67.66L34.49 67.19L34.59 66.72L34.77 66.16L35.24 64.76L35.52 64.11L36.08 62.99L36.36 62.52L36.64 62.05L36.83 61.77L37.67 60.65L38.32 59.9L39.26 58.97L39.91 58.41L40.66 57.85L41.03 57.57L41.78 57.1L42.25 56.82L43.55 56.17L44.02 55.98L44.49 55.79L44.77 55.7L45.05 55.61L46.36 55.23L46.82 55.14L47.29 55.04L47.94 54.95Z" 
+        fillRule="evenodd" 
+        fill={wishlisted ? "#EF4444" : "currentColor"} 
+      />
+
+      {/* Hanger top */}
+      <path 
+        d="M58.69 6.09L57.75 6.19L57.19 6.28L56.73 6.37L56.07 6.56L54.95 6.93L54.48 7.12L53.36 7.68L52.9 7.96L52.06 8.52L51.68 8.8L51.21 9.18L49.81 10.58L49.35 11.14L49.07 11.51L48.51 12.35L48.13 13.01L47.94 13.38L47.66 13.94L47.38 14.59L47.1 15.44L46.92 16.09L46.82 16.46L46.73 16.84L46.64 17.86L46.54 18.14L46.08 18.7L44.96 20.11L44.02 21.13L41.69 24.12L38.23 28.23L35.89 31.22L34.68 32.72L29.35 39.26L27.21 41.78L26.37 42.81L26.08 43.27L24.31 45.33L23.56 46.36L22.72 47.38L22.16 47.94L20.95 49.53L19.64 51.12L18.99 51.77L18.7 52.15L18.42 52.62L18.14 53.18L18.05 53.46L17.96 53.74L17.86 54.11L17.86 54.67L17.77 54.76L17.77 55.23L17.86 55.32L17.86 55.89L17.96 56.26L18.05 56.54L18.24 57.01L18.33 57.19L18.52 57.47L18.8 57.85L19.45 58.5L19.83 58.78L20.29 59.06L20.48 59.15L20.95 59.34L21.23 59.44L21.6 59.53L22.44 59.62L22.72 59.62L23.66 59.53L24.03 59.44L24.31 59.34L24.59 59.25L25.34 58.87L25.62 58.69L25.9 58.5L26.55 57.85L27.39 56.82L28.14 55.79L29.45 54.2L30.76 52.62L33.46 49.44L34.31 48.41L34.59 47.94L36.55 45.52L37.86 44.02L40.56 40.56L41.5 39.54L42.62 38.04L43.55 37.01L43.83 36.55L44.68 35.52L45.61 34.49L45.89 34.03L49.72 29.35L50.19 28.79L50.56 28.51L50.84 28.79L51.49 29.73L53.27 31.97L53.74 32.44L56.17 35.61L56.63 36.08L57.29 37.01L58.13 37.95L59.53 39.72L61.49 42.25L62.7 43.83L65.32 47.29L66.35 48.79L67.84 50.75L69.8 53.27L70.83 54.58L71.3 55.04L71.58 55.51L72.05 55.98L72.61 56.82L73.35 57.75L74.1 58.5L74.38 58.69L74.66 58.87L75.22 59.15L75.69 59.34L76.06 59.44L76.53 59.53L77.93 59.53L78.4 59.44L78.68 59.34L78.96 59.25L79.33 59.06L79.89 58.78L80.27 58.5L81.11 57.66L81.3 57.38L81.58 56.91L81.76 56.45L81.86 56.17L81.95 55.79L82.04 54.86L81.95 54.11L81.86 53.64L81.76 53.36L81.67 53.08L81.3 52.34L81.11 52.06L80.64 51.49L79.52 50.09L78.49 48.79L78.03 48.32L77.75 47.85L76.44 46.36L76.06 45.89L75.78 45.42L75.32 44.96L73.92 43.18L72.23 41.03L71.67 40.19L71.21 39.72L70.37 38.51L69.34 37.3L68.12 35.71L67.94 35.33L66.35 33.28L65.32 31.97L62.8 28.89L61.86 27.58L60.74 26.27L57.1 21.6L56.17 20.39L55.89 20.01L55.61 19.64L55.23 19.08L55.04 18.8L55.04 17.58L55.14 17.21L55.42 16.37L55.51 16.18L55.61 16.0L55.79 15.72L56.82 14.69L57.1 14.5L57.57 14.22L58.03 14.03L58.31 13.94L58.69 13.85L60.18 13.85L61.02 14.13L61.21 14.22L61.49 14.41L62.42 15.34L62.61 15.62L62.7 15.81L62.8 16.0L62.89 16.28L62.99 16.74L62.99 17.68L63.08 17.96L63.17 18.24L63.45 18.8L63.64 19.08L64.39 19.83L64.67 20.01L65.23 20.29L65.51 20.39L65.79 20.48L66.25 20.57L67.56 20.57L67.94 20.48L68.22 20.39L68.5 20.29L69.24 19.92L69.62 19.64L69.99 19.27L70.37 18.8L70.55 18.52L70.65 18.33L70.93 17.49L71.02 17.02L71.02 16.0L70.93 15.15L70.83 14.69L70.55 13.57L70.46 13.29L70.37 13.01L70.08 12.45L69.62 11.51L69.34 11.04L69.06 10.67L68.78 10.3L68.03 9.46L67.84 9.27L67.1 8.62L66.72 8.34L66.44 8.15L66.16 7.96L65.69 7.68L65.13 7.4L64.2 6.93L63.08 6.56L61.96 6.28L61.4 6.19L60.56 6.09Z" 
+        fill={wishlisted ? "currentColor" : "currentColor"} 
+      />
+    </svg>
+  );
+}
+
+// ─── PRODUCT CARD (ORGANIC ARCH-TOP GALLERY SILHOUETTE) ─────────────────────────
 
 function ProductCard({ p, wishlisted, onWishlist, onClickProduct, aiScore }: {
   p: Product; wishlisted: boolean; onWishlist: () => void; onClickProduct: (p: Product) => void; aiScore?: number;
 }) {
   return (
     <motion.div 
-      whileHover={{ y: -3 }} 
+      whileHover={{ y: -5 }} 
       onClick={() => onClickProduct(p)}
-      className="bg-card rounded-2xl overflow-hidden border border-border cursor-pointer group shadow-xs hover:shadow-md transition-all"
+      className="bg-[#FAF9F7] dark:bg-card/90 rounded-t-[54px] rounded-b-[24px] p-3.5 border border-[#C5C6C7] cursor-pointer group shadow-xs hover:shadow-xl transition-all duration-300 flex flex-col justify-between"
     >
-      <div className="relative aspect-[3/4] overflow-hidden">
-        <img src={p.image} alt={p.name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105 bg-muted" />
+      <div className="relative aspect-[4/5] rounded-t-[46px] rounded-b-[18px] overflow-hidden bg-white dark:bg-muted/40 mb-3.5 flex items-center justify-center border border-[#C5C6C7]/60 shadow-inner">
+        <img 
+          src={p.image} 
+          alt={p.name} 
+          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" 
+        />
+
         {aiScore !== undefined && aiScore >= 0.25 && (
-          <div className="absolute top-3 right-3 z-10 bg-emerald-500 text-white text-[10px] font-black px-2 py-0.5 rounded-lg shadow-md flex items-center gap-1 backdrop-blur-sm">
+          <div className="absolute top-2.5 left-2.5 z-10 bg-[#879A77] text-white text-[10px] font-bold px-2.5 py-1 rounded-full shadow-md flex items-center gap-1 backdrop-blur-sm">
             <Sparkles size={10} />
             <span>{Math.round(aiScore * 100)}% Match</span>
           </div>
         )}
-        <button onClick={e => { e.stopPropagation(); onWishlist(); }} className={`absolute ${aiScore ? "top-10" : "top-3"} right-3 w-8 h-8 rounded-full bg-white/80 backdrop-blur-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity`}>
-          <Heart size={14} className={wishlisted ? "fill-red-500 text-red-500" : "text-foreground"} />
-        </button>
-          <div className="absolute top-3 left-3 flex flex-col gap-1">
-            <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${typeColor[p.type]}`} style={{ fontFamily: "'Inter'" }}>{p.type.toUpperCase()}</span>
-            <span className={`text-[9px] font-semibold px-2 py-0.5 rounded-full ${condColor[p.condition]}`} style={{ fontFamily: "'Inter'" }}>{p.condition}</span>
-          </div>
+
+        {/* Category / Type chips at bottom-left */}
+        <div className="absolute bottom-2.5 left-2.5 flex items-center gap-1.5 z-10">
+          <span className={`text-[9px] font-bold px-2.5 py-0.5 rounded-full shadow-xs ${typeColor[p.type]}`} style={{ fontFamily: "'Inter'" }}>
+            {p.type.toUpperCase()}
+          </span>
+          <span className={`text-[9px] font-semibold px-2.5 py-0.5 rounded-full backdrop-blur-xs shadow-xs ${condColor[p.condition]}`} style={{ fontFamily: "'Inter'" }}>
+            {p.condition}
+          </span>
+        </div>
+
+        {/* Floating micro-action stack on top right */}
+        <div className="absolute top-2.5 right-2.5 flex flex-col gap-1.5 z-10">
+          <button 
+            type="button"
+            onClick={e => { e.stopPropagation(); onWishlist(); }} 
+            className="w-8 h-8 rounded-full bg-white/95 dark:bg-stone-900/95 backdrop-blur-sm shadow-sm flex items-center justify-center text-[#554940] dark:text-[#E2EEF8] hover:scale-110 active:scale-95 transition-all"
+            title={wishlisted ? "Remove from Wishlist" : "Add to Wishlist"}
+          >
+            <ThreadSwapWishlistIcon wishlisted={wishlisted} size={16} />
+          </button>
+          <button 
+            type="button"
+            onClick={e => { e.stopPropagation(); onClickProduct(p); }} 
+            className="w-8 h-8 rounded-full bg-white/95 dark:bg-stone-900/95 backdrop-blur-sm shadow-sm flex items-center justify-center text-[#554940] opacity-0 group-hover:opacity-100 hover:scale-110 active:scale-95 transition-all"
+            title="Quick View"
+          >
+            <Eye size={14} />
+          </button>
           {p.images && p.images.length > 1 && (
-            <div className="absolute bottom-2.5 right-2.5 z-10 bg-black/65 backdrop-blur-xs text-white text-[10px] font-bold px-2 py-0.5 rounded-lg flex items-center gap-1 shadow-sm">
-              <ImageIcon size={10} />
+            <div className="bg-[#554940]/80 backdrop-blur-xs text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full flex items-center justify-center gap-0.5 shadow-sm">
+              <ImageIcon size={9} />
               <span>{p.images.length}</span>
             </div>
           )}
         </div>
-      <div className="p-3.5">
-        <p className="text-sm font-semibold text-foreground truncate" style={{ fontFamily: "'Plus Jakarta Sans'" }}>{p.name}</p>
-        <p className="text-xs text-muted-foreground mt-0.5" style={{ fontFamily: "'Inter'" }}>{p.seller}</p>
-        <div className="flex items-center justify-between mt-2.5">
-          <span className={`text-base font-bold ${p.price === 0 ? "text-primary" : "text-foreground"}`} style={{ fontFamily: "'Plus Jakarta Sans'" }}>{fmt(p.price)}</span>
-          <div className="flex items-center gap-1">
-            <Star size={11} className="fill-amber-400 text-amber-400" />
-            <span className="text-[11px] text-muted-foreground" style={{ fontFamily: "'Inter'" }}>{p.rating} ({p.reviews})</span>
+      </div>
+
+      <div className="px-1.5 pb-1 flex-1 flex flex-col justify-between">
+        <div>
+          {p.reviews > 0 && p.rating > 0 ? (
+            <div className="flex items-center gap-1 mb-1 text-amber-500">
+              <Star size={11} className="fill-amber-400 text-amber-400" />
+              <span className="text-[11px] font-bold text-[#554940] dark:text-stone-200" style={{ fontFamily: "'Inter'" }}>
+                {p.rating.toFixed(1)}
+              </span>
+              <span className="text-[10px] text-[#73787C]">({p.reviews})</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1 mb-1">
+              <span className="text-[10px] font-medium text-[#554940] bg-[#D7E5F0]/70 px-2 py-0.5 rounded-full border border-[#C5C6C7]/60" style={{ fontFamily: "'Inter'" }}>
+                New Listing
+              </span>
+            </div>
+          )}
+
+          <h3 
+            className="text-sm font-bold text-[#000000] dark:text-stone-100 truncate group-hover:text-[#879A77] transition-colors"
+            style={{ fontFamily: "'Arvo', serif" }}
+          >
+            {p.name}
+          </h3>
+
+          <div className="flex items-center gap-1.5 mt-1 text-[#73787C] text-[11px]" style={{ fontFamily: "'Inter'" }}>
+            <MapPin size={10} className="text-[#879A77] flex-shrink-0" />
+            <span className="truncate">{p.location || "Nearby"}</span>
+            <span className="opacity-40">·</span>
+            <span className="truncate">{p.seller}</span>
           </div>
         </div>
-        <div className="flex items-center gap-1 mt-1.5">
-          <MapPin size={10} className="text-primary" />
-          <span className="text-[10px] text-muted-foreground truncate" style={{ fontFamily: "'Inter'" }}>{p.location || "Nearby"}</span>
+
+        <div className="flex items-baseline justify-between mt-3 pt-2.5 border-t border-[#C5C6C7]/50">
+          <div className="flex items-baseline gap-1.5">
+            <span 
+              className={`text-base font-bold ${p.price === 0 ? "text-[#879A77]" : "text-[#554940] dark:text-[#D7E5F0]"}`}
+              style={{ fontFamily: "'Arvo', serif" }}
+            >
+              {fmt(p.price)}
+            </span>
+            {p.price > 0 && (
+              <span className="text-[11px] text-[#73787C] line-through font-normal" style={{ fontFamily: "'Inter'" }}>
+                {fmt(Math.round(p.price * 1.45))}
+              </span>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onClickProduct(p); }}
+            className="w-7 h-7 rounded-full bg-[#879A77] hover:bg-[#554940] text-white flex items-center justify-center transition-all shadow-xs"
+            title="View details"
+          >
+            <ArrowRight size={13} />
+          </button>
         </div>
       </div>
     </motion.div>
   );
 }
 
-// ─── HOME PAGE ────────────────────────────────────────────────────────────────
+// ─── DYNAMIC MOSAIC PRODUCT CARD (7-SLOT REPEATING EDITORIAL GRID) ───────────────
+
+function DynamicMosaicProductCard({
+  p,
+  index,
+  wishlisted,
+  onWishlist,
+  onClickProduct,
+  aiScore,
+}: {
+  p: Product;
+  index: number;
+  wishlisted: boolean;
+  onWishlist: () => void;
+  onClickProduct: (p: Product) => void;
+  aiScore?: number;
+}) {
+  const slot = index % 7;
+
+  // Slot 4: Wide horizontal banner (Spans 8 columns on desktop)
+  if (slot === 4) {
+    return (
+      <motion.div
+        whileHover={{ y: -4 }}
+        onClick={() => onClickProduct(p)}
+        className="col-span-12 md:col-span-8 bg-[#FAF9F7] dark:bg-card/90 rounded-[32px] p-4 sm:p-6 border border-[#C5C6C7] cursor-pointer group shadow-xs hover:shadow-xl transition-all duration-300 flex flex-col md:flex-row items-center gap-6"
+      >
+        <div className="relative w-full md:w-[48%] aspect-[4/3] md:aspect-auto md:h-full md:min-h-[260px] rounded-[24px] overflow-hidden bg-white dark:bg-muted/40 border border-[#C5C6C7]/60 shadow-inner flex-shrink-0 flex items-center justify-center">
+          <img
+            src={p.image}
+            alt={p.name}
+            className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+          />
+          {aiScore !== undefined && aiScore >= 0.25 && (
+            <div className="absolute top-3 left-3 z-10 bg-[#879A77] text-white text-[10px] font-bold px-2.5 py-1 rounded-full shadow-md flex items-center gap-1 backdrop-blur-sm">
+              <Sparkles size={10} />
+              <span>{Math.round(aiScore * 100)}% Match</span>
+            </div>
+          )}
+          <div className="absolute bottom-3 left-3 flex items-center gap-1.5 z-10">
+            <span className={`text-[9px] font-bold px-2.5 py-0.5 rounded-full shadow-xs ${typeColor[p.type]}`} style={{ fontFamily: "'Inter'" }}>
+              {p.type.toUpperCase()}
+            </span>
+            <span className={`text-[9px] font-semibold px-2.5 py-0.5 rounded-full backdrop-blur-xs shadow-xs ${condColor[p.condition]}`} style={{ fontFamily: "'Inter'" }}>
+              {p.condition}
+            </span>
+          </div>
+          <div className="absolute top-3 right-3 flex items-center gap-1.5 z-10">
+            <button
+              type="button"
+              onClick={e => { e.stopPropagation(); onWishlist(); }}
+              className="w-8 h-8 rounded-full bg-white/95 dark:bg-stone-900/95 backdrop-blur-sm shadow-sm flex items-center justify-center text-[#554940] dark:text-[#E2EEF8] hover:scale-110 active:scale-95 transition-all"
+              title={wishlisted ? "Remove from Wishlist" : "Add to Wishlist"}
+            >
+              <ThreadSwapWishlistIcon wishlisted={wishlisted} size={16} />
+            </button>
+            {p.images && p.images.length > 1 && (
+              <div className="bg-[#554940]/80 backdrop-blur-xs text-white text-[9px] font-bold px-2 py-1 rounded-full flex items-center gap-1 shadow-sm">
+                <ImageIcon size={9} />
+                <span>{p.images.length}</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="w-full md:w-[52%] flex flex-col justify-between h-full py-1">
+          <div>
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <span className="text-[10px] font-bold text-[#879A77] uppercase tracking-wider" style={{ fontFamily: "'Inter'" }}>
+                {p.category || "Apparel"} · {p.size ? `Size ${p.size}` : "Unisex"}
+              </span>
+              {p.reviews > 0 && p.rating > 0 ? (
+                <div className="flex items-center gap-1 text-amber-500">
+                  <Star size={11} className="fill-amber-400 text-amber-400" />
+                  <span className="text-[11px] font-bold text-[#554940] dark:text-stone-200" style={{ fontFamily: "'Inter'" }}>
+                    {p.rating.toFixed(1)}
+                  </span>
+                  <span className="text-[10px] text-[#73787C]">({p.reviews})</span>
+                </div>
+              ) : (
+                <span className="text-[10px] font-medium text-[#554940] bg-[#D7E5F0]/70 px-2 py-0.5 rounded-full border border-[#C5C6C7]/60" style={{ fontFamily: "'Inter'" }}>
+                  New Listing
+                </span>
+              )}
+            </div>
+
+            <h3
+              className="text-lg md:text-xl font-bold text-[#000000] dark:text-stone-100 group-hover:text-[#879A77] transition-colors leading-snug mb-2"
+              style={{ fontFamily: "'Arvo', serif" }}
+            >
+              {p.name}
+            </h3>
+
+            {p.description && (
+              <p className="text-xs text-[#73787C] dark:text-stone-300 line-clamp-2 leading-relaxed mb-3" style={{ fontFamily: "'Inter'" }}>
+                {p.description}
+              </p>
+            )}
+
+            <div className="flex items-center gap-2 text-[#73787C] text-xs" style={{ fontFamily: "'Inter'" }}>
+              <MapPin size={12} className="text-[#879A77] flex-shrink-0" />
+              <span className="truncate">{p.location || "Nearby"}</span>
+              <span className="opacity-40">·</span>
+              <span className="truncate font-medium text-[#554940] dark:text-stone-300">Listed by {p.seller}</span>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between pt-4 mt-3 border-t border-[#C5C6C7]/50">
+            <div className="flex items-baseline gap-2">
+              <span
+                className={`text-xl font-bold ${p.price === 0 ? "text-[#879A77]" : "text-[#554940] dark:text-[#D7E5F0]"}`}
+                style={{ fontFamily: "'Arvo', serif" }}
+              >
+                {fmt(p.price)}
+              </span>
+              {p.price > 0 && (
+                <span className="text-xs text-[#73787C] line-through font-normal" style={{ fontFamily: "'Inter'" }}>
+                  {fmt(Math.round(p.price * 1.45))}
+                </span>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={e => { e.stopPropagation(); onClickProduct(p); }}
+              className="px-4 py-2 rounded-full bg-[#879A77] hover:bg-[#554940] text-white text-xs font-bold transition-all shadow-xs flex items-center gap-1.5"
+            >
+              <span>Explore Piece</span>
+              <ArrowRight size={13} />
+            </button>
+          </div>
+        </div>
+      </motion.div>
+    );
+  }
+
+  // Slots 5 & 6: Half-width balanced cards (Span 6 columns each on desktop)
+  if (slot === 5 || slot === 6) {
+    return (
+      <motion.div
+        whileHover={{ y: -4 }}
+        onClick={() => onClickProduct(p)}
+        className="col-span-12 md:col-span-6 bg-[#FAF9F7] dark:bg-card/90 rounded-[28px] p-4 sm:p-5 border border-[#C5C6C7] cursor-pointer group shadow-xs hover:shadow-xl transition-all duration-300 flex flex-col sm:flex-row items-center gap-5"
+      >
+        <div className="relative w-full sm:w-[46%] aspect-[4/3] sm:aspect-auto sm:h-full sm:min-h-[210px] rounded-[22px] overflow-hidden bg-white dark:bg-muted/40 border border-[#C5C6C7]/60 shadow-inner flex-shrink-0 flex items-center justify-center">
+          <img
+            src={p.image}
+            alt={p.name}
+            className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+          />
+          <div className="absolute bottom-2.5 left-2.5 flex items-center gap-1.5 z-10">
+            <span className={`text-[9px] font-bold px-2.5 py-0.5 rounded-full shadow-xs ${typeColor[p.type]}`} style={{ fontFamily: "'Inter'" }}>
+              {p.type.toUpperCase()}
+            </span>
+            <span className={`text-[9px] font-semibold px-2.5 py-0.5 rounded-full backdrop-blur-xs shadow-xs ${condColor[p.condition]}`} style={{ fontFamily: "'Inter'" }}>
+              {p.condition}
+            </span>
+          </div>
+          <div className="absolute top-2.5 right-2.5 z-10">
+            <button
+              type="button"
+              onClick={e => { e.stopPropagation(); onWishlist(); }}
+              className="w-8 h-8 rounded-full bg-white/95 dark:bg-stone-900/95 backdrop-blur-sm shadow-sm flex items-center justify-center text-[#554940] dark:text-[#E2EEF8] hover:scale-110 active:scale-95 transition-all"
+              title={wishlisted ? "Remove from Wishlist" : "Add to Wishlist"}
+            >
+              <ThreadSwapWishlistIcon wishlisted={wishlisted} size={16} />
+            </button>
+          </div>
+        </div>
+
+        <div className="w-full sm:w-[54%] flex flex-col justify-between h-full py-1">
+          <div>
+            <div className="flex items-center justify-between gap-1 mb-1.5">
+              <span className="text-[10px] font-bold text-[#879A77] uppercase tracking-wider" style={{ fontFamily: "'Inter'" }}>
+                {p.category || "Apparel"}
+              </span>
+              {p.reviews > 0 && p.rating > 0 ? (
+                <div className="flex items-center gap-1 text-amber-500">
+                  <Star size={11} className="fill-amber-400 text-amber-400" />
+                  <span className="text-[11px] font-bold text-[#554940] dark:text-stone-200" style={{ fontFamily: "'Inter'" }}>
+                    {p.rating.toFixed(1)}
+                  </span>
+                  <span className="text-[10px] text-[#73787C]">({p.reviews})</span>
+                </div>
+              ) : (
+                <span className="text-[10px] font-medium text-[#554940] bg-[#D7E5F0]/70 px-2 py-0.5 rounded-full border border-[#C5C6C7]/60" style={{ fontFamily: "'Inter'" }}>
+                  New Listing
+                </span>
+              )}
+            </div>
+
+            <h3
+              className="text-base font-bold text-[#000000] dark:text-stone-100 group-hover:text-[#879A77] transition-colors leading-snug truncate"
+              style={{ fontFamily: "'Arvo', serif" }}
+            >
+              {p.name}
+            </h3>
+
+            <div className="flex items-center gap-1.5 mt-2 text-[#73787C] text-[11px]" style={{ fontFamily: "'Inter'" }}>
+              <MapPin size={11} className="text-[#879A77] flex-shrink-0" />
+              <span className="truncate">{p.location || "Nearby"}</span>
+              <span className="opacity-40">·</span>
+              <span className="truncate">{p.seller}</span>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between pt-3 mt-3 border-t border-[#C5C6C7]/50">
+            <div className="flex items-baseline gap-1.5">
+              <span
+                className={`text-lg font-bold ${p.price === 0 ? "text-[#879A77]" : "text-[#554940] dark:text-[#D7E5F0]"}`}
+                style={{ fontFamily: "'Arvo', serif" }}
+              >
+                {fmt(p.price)}
+              </span>
+              {p.price > 0 && (
+                <span className="text-[11px] text-[#73787C] line-through font-normal" style={{ fontFamily: "'Inter'" }}>
+                  {fmt(Math.round(p.price * 1.45))}
+                </span>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={e => { e.stopPropagation(); onClickProduct(p); }}
+              className="w-8 h-8 rounded-full bg-[#879A77] hover:bg-[#554940] text-white flex items-center justify-center transition-all shadow-xs"
+              title="View details"
+            >
+              <ArrowRight size={13} />
+            </button>
+          </div>
+        </div>
+      </motion.div>
+    );
+  }
+
+  // Slots 1, 2, 3: Tall Vertical Portrait Cards (Span 4 cols, 2 rows on desktop)
+  if (slot === 1 || slot === 2 || slot === 3) {
+    return (
+      <motion.div
+        whileHover={{ y: -5 }}
+        onClick={() => onClickProduct(p)}
+        className="col-span-12 md:col-span-4 md:row-span-2 bg-[#FAF9F7] dark:bg-card/90 rounded-[32px] p-4 border border-[#C5C6C7] cursor-pointer group shadow-xs hover:shadow-xl transition-all duration-300 flex flex-col justify-between"
+      >
+        <div className="relative aspect-[3/4] md:aspect-auto md:flex-1 md:min-h-[380px] rounded-[24px] overflow-hidden bg-white dark:bg-muted/40 mb-4 flex items-center justify-center border border-[#C5C6C7]/60 shadow-inner">
+          <img
+            src={p.image}
+            alt={p.name}
+            className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+          />
+
+          {aiScore !== undefined && aiScore >= 0.25 && (
+            <div className="absolute top-3 left-3 z-10 bg-[#879A77] text-white text-[10px] font-bold px-2.5 py-1 rounded-full shadow-md flex items-center gap-1 backdrop-blur-sm">
+              <Sparkles size={10} />
+              <span>{Math.round(aiScore * 100)}% Match</span>
+            </div>
+          )}
+
+          <div className="absolute bottom-3 left-3 flex items-center gap-1.5 z-10">
+            <span className={`text-[9px] font-bold px-2.5 py-0.5 rounded-full shadow-xs ${typeColor[p.type]}`} style={{ fontFamily: "'Inter'" }}>
+              {p.type.toUpperCase()}
+            </span>
+            <span className={`text-[9px] font-semibold px-2.5 py-0.5 rounded-full backdrop-blur-xs shadow-xs ${condColor[p.condition]}`} style={{ fontFamily: "'Inter'" }}>
+              {p.condition}
+            </span>
+          </div>
+
+          <div className="absolute top-3 right-3 flex flex-col gap-1.5 z-10">
+            <button
+              type="button"
+              onClick={e => { e.stopPropagation(); onWishlist(); }}
+              className="w-8 h-8 rounded-full bg-white/95 dark:bg-stone-900/95 backdrop-blur-sm shadow-sm flex items-center justify-center text-[#554940] dark:text-[#E2EEF8] hover:scale-110 active:scale-95 transition-all"
+              title={wishlisted ? "Remove from Wishlist" : "Add to Wishlist"}
+            >
+              <ThreadSwapWishlistIcon wishlisted={wishlisted} size={16} />
+            </button>
+            <button
+              type="button"
+              onClick={e => { e.stopPropagation(); onClickProduct(p); }}
+              className="w-8 h-8 rounded-full bg-white/95 dark:bg-stone-900/95 backdrop-blur-sm shadow-sm flex items-center justify-center text-[#554940] opacity-0 group-hover:opacity-100 hover:scale-110 active:scale-95 transition-all"
+              title="Quick View"
+            >
+              <Eye size={14} />
+            </button>
+            {p.images && p.images.length > 1 && (
+              <div className="bg-[#554940]/80 backdrop-blur-xs text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full flex items-center justify-center gap-0.5 shadow-sm">
+                <ImageIcon size={9} />
+                <span>{p.images.length}</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="px-1 flex flex-col justify-between">
+          <div>
+            {p.reviews > 0 && p.rating > 0 ? (
+              <div className="flex items-center gap-1 mb-1 text-amber-500">
+                <Star size={11} className="fill-amber-400 text-amber-400" />
+                <span className="text-[11px] font-bold text-[#554940] dark:text-stone-200" style={{ fontFamily: "'Inter'" }}>
+                  {p.rating.toFixed(1)}
+                </span>
+                <span className="text-[10px] text-[#73787C]">({p.reviews})</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1 mb-1">
+                <span className="text-[10px] font-medium text-[#554940] bg-[#D7E5F0]/70 px-2 py-0.5 rounded-full border border-[#C5C6C7]/60" style={{ fontFamily: "'Inter'" }}>
+                  New Listing
+                </span>
+              </div>
+            )}
+
+            <h3
+              className="text-base font-bold text-[#000000] dark:text-stone-100 truncate group-hover:text-[#879A77] transition-colors"
+              style={{ fontFamily: "'Arvo', serif" }}
+            >
+              {p.name}
+            </h3>
+
+            <div className="flex items-center gap-1.5 mt-1 text-[#73787C] text-[11px]" style={{ fontFamily: "'Inter'" }}>
+              <MapPin size={11} className="text-[#879A77] flex-shrink-0" />
+              <span className="truncate">{p.location || "Nearby"}</span>
+              <span className="opacity-40">·</span>
+              <span className="truncate">{p.seller}</span>
+            </div>
+          </div>
+
+          <div className="flex items-baseline justify-between mt-3 pt-2.5 border-t border-[#C5C6C7]/50">
+            <div className="flex items-baseline gap-1.5">
+              <span
+                className={`text-lg font-bold ${p.price === 0 ? "text-[#879A77]" : "text-[#554940] dark:text-[#D7E5F0]"}`}
+                style={{ fontFamily: "'Arvo', serif" }}
+              >
+                {fmt(p.price)}
+              </span>
+              {p.price > 0 && (
+                <span className="text-[11px] text-[#73787C] line-through font-normal" style={{ fontFamily: "'Inter'" }}>
+                  {fmt(Math.round(p.price * 1.45))}
+                </span>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={e => { e.stopPropagation(); onClickProduct(p); }}
+              className="w-8 h-8 rounded-full bg-[#879A77] hover:bg-[#554940] text-white flex items-center justify-center transition-all shadow-xs"
+              title="View details"
+            >
+              <ArrowRight size={13} />
+            </button>
+          </div>
+        </div>
+      </motion.div>
+    );
+  }
+
+  // Slot 0: Top-left Compact Card (Span 4 cols, 1 row)
+  return (
+    <motion.div
+      whileHover={{ y: -4 }}
+      onClick={() => onClickProduct(p)}
+      className="col-span-12 md:col-span-4 row-span-1 bg-[#FAF9F7] dark:bg-card/90 rounded-[28px] p-4 border border-[#C5C6C7] cursor-pointer group shadow-xs hover:shadow-xl transition-all duration-300 flex flex-col justify-between"
+    >
+      <div className="relative aspect-[16/10] sm:aspect-[4/3] rounded-[20px] overflow-hidden bg-white dark:bg-muted/40 mb-3 flex items-center justify-center border border-[#C5C6C7]/60 shadow-inner">
+        <img
+          src={p.image}
+          alt={p.name}
+          className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+        />
+
+        {aiScore !== undefined && aiScore >= 0.25 && (
+          <div className="absolute top-2.5 left-2.5 z-10 bg-[#879A77] text-white text-[10px] font-bold px-2.5 py-1 rounded-full shadow-md flex items-center gap-1 backdrop-blur-sm">
+            <Sparkles size={10} />
+            <span>{Math.round(aiScore * 100)}% Match</span>
+          </div>
+        )}
+
+        <div className="absolute bottom-2.5 left-2.5 flex items-center gap-1.5 z-10">
+          <span className={`text-[9px] font-bold px-2.5 py-0.5 rounded-full shadow-xs ${typeColor[p.type]}`} style={{ fontFamily: "'Inter'" }}>
+            {p.type.toUpperCase()}
+          </span>
+          <span className={`text-[9px] font-semibold px-2.5 py-0.5 rounded-full backdrop-blur-xs shadow-xs ${condColor[p.condition]}`} style={{ fontFamily: "'Inter'" }}>
+            {p.condition}
+          </span>
+        </div>
+
+        <div className="absolute top-2.5 right-2.5 flex items-center gap-1 z-10">
+          <button
+            type="button"
+            onClick={e => { e.stopPropagation(); onWishlist(); }}
+            className="w-7 h-7 rounded-full bg-white/95 dark:bg-stone-900/95 backdrop-blur-sm shadow-sm flex items-center justify-center text-[#554940] dark:text-[#E2EEF8] hover:scale-110 active:scale-95 transition-all"
+            title={wishlisted ? "Remove from Wishlist" : "Add to Wishlist"}
+          >
+            <ThreadSwapWishlistIcon wishlisted={wishlisted} size={14} />
+          </button>
+        </div>
+      </div>
+
+      <div className="px-1 flex flex-col justify-between">
+        <div>
+          {p.reviews > 0 && p.rating > 0 ? (
+            <div className="flex items-center gap-1 mb-1 text-amber-500">
+              <Star size={11} className="fill-amber-400 text-amber-400" />
+              <span className="text-[11px] font-bold text-[#554940] dark:text-stone-200" style={{ fontFamily: "'Inter'" }}>
+                {p.rating.toFixed(1)}
+              </span>
+              <span className="text-[10px] text-[#73787C]">({p.reviews})</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1 mb-1">
+              <span className="text-[10px] font-medium text-[#554940] bg-[#D7E5F0]/70 px-2 py-0.5 rounded-full border border-[#C5C6C7]/60" style={{ fontFamily: "'Inter'" }}>
+                New Listing
+              </span>
+            </div>
+          )}
+
+          <h3
+            className="text-sm font-bold text-[#000000] dark:text-stone-100 truncate group-hover:text-[#879A77] transition-colors"
+            style={{ fontFamily: "'Arvo', serif" }}
+          >
+            {p.name}
+          </h3>
+
+          <div className="flex items-center gap-1.5 mt-1 text-[#73787C] text-[11px]" style={{ fontFamily: "'Inter'" }}>
+            <MapPin size={10} className="text-[#879A77] flex-shrink-0" />
+            <span className="truncate">{p.location || "Nearby"}</span>
+            <span className="opacity-40">·</span>
+            <span className="truncate">{p.seller}</span>
+          </div>
+        </div>
+
+        <div className="flex items-baseline justify-between mt-2.5 pt-2 border-t border-[#C5C6C7]/50">
+          <div className="flex items-baseline gap-1.5">
+            <span
+              className={`text-base font-bold ${p.price === 0 ? "text-[#879A77]" : "text-[#554940] dark:text-[#D7E5F0]"}`}
+              style={{ fontFamily: "'Arvo', serif" }}
+            >
+              {fmt(p.price)}
+            </span>
+            {p.price > 0 && (
+              <span className="text-[11px] text-[#73787C] line-through font-normal" style={{ fontFamily: "'Inter'" }}>
+                {fmt(Math.round(p.price * 1.45))}
+              </span>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={e => { e.stopPropagation(); onClickProduct(p); }}
+            className="w-7 h-7 rounded-full bg-[#879A77] hover:bg-[#554940] text-white flex items-center justify-center transition-all shadow-xs"
+            title="View details"
+          >
+            <ArrowRight size={12} />
+          </button>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+// ─── HOME PAGE (REAL USER LISTINGS IN ORGANIC GALLERY & NEW COLOR PALETTE) ─────
 
 function HomePage({ 
   productsList, 
@@ -686,6 +1543,9 @@ function HomePage({
   onSelectCity?: (city: string) => void;
 }) {
   const [wishlist, setWishlist] = useState<number[]>([]);
+  const [activeCollectionTab, setActiveCollectionTab] = useState<"all" | "latest" | "swaps" | "nearby">("all");
+  const [heroSlide, setHeroSlide] = useState(0);
+
   const [liveStats, setLiveStats] = useState({
     itemsSaved: "5",
     activeUsers: "14",
@@ -704,161 +1564,563 @@ function HomePage({
     });
   }, [productsList.length]);
 
-  const stats = [
-    { icon: <Recycle size={22} />, val: liveStats.itemsSaved, label: "Items Saved" },
-    { icon: <TrendingUp size={22} />, val: liveStats.activeUsers, label: "Active Users" },
-    { icon: <MapPin size={22} />, val: liveStats.citiesCovered, label: "Cities Covered" },
-  ];
+  // Real items for hero and bento spotlight
+  const activeHeroItem = productsList.length > 0
+    ? productsList[heroSlide % productsList.length]
+    : null;
 
-  // Filter listings based strictly on the user's active city / address
-  const featuredProducts = productsList.filter(p => isProductInCity(p, activeCity));
+  const spotlightItem0 = productsList[0] || null;
+  const spotlightItem1 = productsList.length > 1 ? productsList[1] : spotlightItem0;
+  const spotlightItem2 = productsList.length > 2 ? productsList[2] : (spotlightItem1 || spotlightItem0);
+
+  // Live GPS Geolocation Auto-Detection Handler
+  const handleDetectGps = () => {
+    if (!navigator.geolocation) {
+      alert("Geolocation is not supported by your browser.");
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        if (Math.abs(lat - 30.4035) < 0.4 && Math.abs(lng - 77.9340) < 0.4) {
+          if (onSelectCity) onSelectCity('Vikasnagar');
+          setActiveCollectionTab('nearby');
+          return;
+        }
+        if (Math.abs(lat - 30.3165) < 0.5 && Math.abs(lng - 78.0322) < 0.5) {
+          if (onSelectCity) onSelectCity('Dehradun');
+          setActiveCollectionTab('nearby');
+          return;
+        }
+        if (Math.abs(lat - 19.0760) < 0.6 && Math.abs(lng - 72.8777) < 0.6) {
+          if (onSelectCity) onSelectCity('Mumbai');
+          setActiveCollectionTab('nearby');
+          return;
+        }
+        try {
+          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
+          if (res.ok) {
+            const data = await res.json();
+            const city = data.address?.city || data.address?.town || data.address?.suburb || data.address?.village || data.address?.state_district;
+            if (city && onSelectCity) {
+              onSelectCity(city);
+              setActiveCollectionTab('nearby');
+            }
+          }
+        } catch (e) {
+          if (onSelectCity) onSelectCity('Vikasnagar');
+          setActiveCollectionTab('nearby');
+        }
+      },
+      () => {
+        alert("Location access denied or unavailable. Please pick your city from the dropdown list.");
+      }
+    );
+  };
+
+  // Determine which products to show based on collection tab
+  const getFilteredCollection = () => {
+    switch (activeCollectionTab) {
+      case "latest":
+        return [...productsList].reverse();
+      case "swaps":
+        return productsList.filter(p => p.type === "Exchange" || p.price === 0);
+      case "nearby":
+        return productsList.filter(p => isProductInCity(p, activeCity));
+      case "all":
+      default:
+        return productsList;
+    }
+  };
+
+  const displayedProducts = getFilteredCollection();
 
   return (
-    <div className="bg-background min-h-screen">
-      {/* Hero Banner */}
-      <section className="relative overflow-hidden">
-        <div className="absolute inset-0">
-          <img src="https://images.unsplash.com/photo-1558769132-cb1aea458c5e?w=1600&h=700&fit=crop&auto=format" alt="hero" className="w-full h-full object-cover" />
-          <div className="absolute inset-0 bg-gradient-to-r from-[#1C201A]/90 via-[#1C201A]/60 to-transparent" />
-        </div>
-        <div className="relative max-w-7xl mx-auto px-6 py-24">
-          <div className="max-w-xl">
-            <div className="inline-flex items-center gap-2 bg-white/15 backdrop-blur-sm border border-white/20 rounded-full px-3.5 py-1.5 mb-5">
-              <Leaf size={14} className="text-[#E8D8C8]" />
-              <span className="text-[#E8D8C8] text-xs font-semibold" style={{ fontFamily: "'Inter'" }}>Sustainable Fashion Marketplace</span>
-            </div>
-            <h1 style={{ fontFamily: "'Plus Jakarta Sans'", fontWeight: 800, lineHeight: 1.1 }} className="text-5xl text-white mb-5">
-              Give Clothes<br />
-              <span style={{ color: "#E8D8C8" }}>a Second Life.</span>
-            </h1>
-            <p className="text-white/80 text-base leading-relaxed mb-8" style={{ fontFamily: "'Inter'" }}>
-              Buy, sell, and exchange pre-loved fashion with people near you. Thrift smarter, live greener.
-            </p>
-            <div className="flex items-center gap-3 flex-wrap">
-              <button onClick={() => onNav("discover", "grid")} style={{ fontFamily: "'Plus Jakarta Sans'", fontWeight: 700 }} className="px-7 py-3.5 bg-primary text-primary-foreground rounded-xl text-sm uppercase tracking-widest flex items-center gap-2 shadow-lg hover:bg-primary/90 transition-colors">
-                Browse Items <ArrowRight size={16} />
-              </button>
-              <button onClick={() => onNav("map", "map")} style={{ fontFamily: "'Plus Jakarta Sans'", fontWeight: 700 }} className="px-7 py-3.5 bg-white/15 backdrop-blur-sm border border-white/30 text-white rounded-xl text-sm uppercase tracking-widest hover:bg-white/25 transition-colors flex items-center gap-2">
-                <MapIcon size={16} /> Explore OsmDroid Map
-              </button>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Dynamic Impact Stats Bar (3 Dynamic Metrics, Carbon Emission Removed) */}
-      <section className="bg-primary shadow-inner">
-        <div className="max-w-7xl mx-auto px-6 py-5 grid grid-cols-1 sm:grid-cols-3 gap-6">
-          {stats.map(s => (
-            <div key={s.label} className="flex items-center justify-center sm:justify-start gap-4">
-              <div className="w-11 h-11 rounded-2xl bg-white/15 backdrop-blur-xs flex items-center justify-center text-white flex-shrink-0 shadow-xs">{s.icon}</div>
-              <div>
-                <p style={{ fontFamily: "'Plus Jakarta Sans'", fontWeight: 800 }} className="text-white text-2xl leading-tight">{s.val}</p>
-                <p className="text-white/80 text-xs font-medium" style={{ fontFamily: "'Inter'" }}>{s.label}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* Browse All Items Banner */}
-      <section className="max-w-7xl mx-auto px-6 pt-10 pb-4">
-        <div className="rounded-3xl bg-gradient-to-r from-card via-muted/30 to-card border border-border p-6 md:p-8 flex flex-col md:flex-row items-center justify-between gap-6 shadow-xs">
-          <div className="space-y-1.5 text-center md:text-left">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-bold mb-1">
-              <ShoppingBag size={13} />
-              <span>Full Marketplace Catalog</span>
-            </div>
-            <h2 style={{ fontFamily: "'Plus Jakarta Sans'", fontWeight: 800 }} className="text-2xl text-foreground tracking-tight">
-              Browse All Items
-            </h2>
-            <p className="text-xs text-muted-foreground max-w-xl" style={{ fontFamily: "'Inter'" }}>
-              Explore every pre-loved piece, exchange offer, and donation available across all categories and verified members.
-            </p>
-          </div>
-          <button
-            onClick={() => onNav("discover")}
-            style={{ fontFamily: "'Plus Jakarta Sans'", fontWeight: 700 }}
-            className="px-6 py-3.5 bg-primary text-primary-foreground rounded-2xl text-sm font-bold flex items-center gap-2.5 shadow-md hover:bg-primary/90 transition-all hover:gap-3 flex-shrink-0"
-          >
-            <span>Browse All Items</span>
-            <ArrowRight size={16} />
-          </button>
-        </div>
-      </section>
-
-      {/* Featured Grid (Filtered by Active Address City) */}
-      <section className="max-w-7xl mx-auto px-6 pb-12">
-        <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 style={{ fontFamily: "'Plus Jakarta Sans'", fontWeight: 700 }} className="text-xl text-foreground">Featured Near You</h2>
-              <span className="px-2.5 py-0.5 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center gap-1">
-                <MapPin size={11} /> {activeCity}
+    <div className="bg-[#FAF9F6] dark:bg-background min-h-screen text-[#000000]">
+      {/* ─── 1. HERO SECTION (SPOTLIGHTING REAL USER LISTING) ─── */}
+      <section className="max-w-7xl mx-auto px-6 pt-10 pb-12">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-center">
+          
+          {/* Left Column: Headline & Action */}
+          <div className="lg:col-span-7 space-y-6">
+            <div className="inline-flex items-center gap-2 bg-[#D7E5F0] border border-[#C5C6C7]/70 rounded-full px-4 py-1.5 shadow-xs">
+              <Leaf size={14} className="text-[#879A77]" />
+              <span className="text-[#554940] text-xs font-bold tracking-wider uppercase" style={{ fontFamily: "'Inter'" }}>
+                Sustainable Circular Wardrobe
               </span>
             </div>
-            <p className="text-xs text-muted-foreground mt-0.5" style={{ fontFamily: "'Inter'" }}>
-              Showing listings strictly in your registered location ({featuredProducts.length} items found)
+
+            <h1 
+              style={{ fontFamily: "'Arvo', serif", fontWeight: 700, lineHeight: 1.15 }} 
+              className="text-4xl sm:text-5xl lg:text-6xl text-[#000000] tracking-tight"
+            >
+              Discover Unique <br />
+              <span className="text-[#879A77]">Pre-Loved Drops</span>
+            </h1>
+
+            <p className="text-[#73787C] text-base sm:text-lg max-w-xl leading-relaxed" style={{ fontFamily: "'Inter'" }}>
+              Exchange, thrift, and curate authentic wardrobe pieces with verified members in your city. Direct neighborhood handoffs with zero waste.
+            </p>
+
+            <div className="flex items-center gap-4 flex-wrap pt-2">
+              <button 
+                onClick={() => onNav("discover", "grid")} 
+                style={{ fontFamily: "'Inter'", fontWeight: 700 }} 
+                className="px-8 py-4 bg-[#879A77] hover:bg-[#554940] text-white rounded-full text-sm font-bold flex items-center gap-2.5 shadow-lg hover:shadow-xl transition-all hover:gap-3.5"
+              >
+                <span>Browse Catalog</span>
+                <ArrowRight size={16} />
+              </button>
+
+              <button 
+                onClick={() => onNav("map", "map")} 
+                style={{ fontFamily: "'Inter'", fontWeight: 600 }} 
+                className="px-6 py-4 bg-[#D7E5F0] border border-[#C5C6C7] text-[#554940] hover:bg-[#C5C6C7]/50 rounded-full text-sm font-semibold flex items-center gap-2 shadow-xs transition-all"
+              >
+                <MapPin size={16} className="text-[#879A77]" />
+                <span>Map Near {activeCity}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Right Column: Hero Real Listing Showcase Arch Frame */}
+          <div className="lg:col-span-5 relative">
+            {activeHeroItem ? (
+              <div 
+                onClick={() => onClickProduct(activeHeroItem)}
+                className="relative aspect-[4/5] rounded-t-[54px] rounded-b-[32px] overflow-hidden shadow-2xl border border-[#C5C6C7]/80 bg-white group cursor-pointer"
+              >
+                <img 
+                  src={activeHeroItem.image} 
+                  alt={activeHeroItem.name} 
+                  className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-[#000000]/85 via-[#000000]/25 to-transparent" />
+
+                {/* Top Badge: Condition & Type */}
+                <div className="absolute top-5 left-5 z-10 flex items-center gap-2">
+                  <span className="bg-[#D7E5F0] text-[#554940] text-xs font-bold px-3.5 py-1.5 rounded-full shadow-md" style={{ fontFamily: "'Inter'" }}>
+                    {activeHeroItem.condition} · {activeHeroItem.type.toUpperCase()}
+                  </span>
+                </div>
+
+                {/* Carousel Controls to Cycle Real Listings */}
+                {productsList.length > 1 && (
+                  <div className="absolute top-5 right-5 z-10 flex items-center gap-2">
+                    <button 
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setHeroSlide((prev) => (prev > 0 ? prev - 1 : productsList.length - 1));
+                      }}
+                      className="w-9 h-9 rounded-full bg-white/90 hover:bg-white text-[#554940] shadow-md backdrop-blur-md flex items-center justify-center transition-all hover:scale-110 active:scale-95"
+                      title="Previous Listing"
+                    >
+                      <ChevronLeft size={18} />
+                    </button>
+                    <button 
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setHeroSlide((prev) => (prev < productsList.length - 1 ? prev + 1 : 0));
+                      }}
+                      className="w-9 h-9 rounded-full bg-white/90 hover:bg-white text-[#554940] shadow-md backdrop-blur-md flex items-center justify-center transition-all hover:scale-110 active:scale-95"
+                      title="Next Listing"
+                    >
+                      <ChevronRight size={18} />
+                    </button>
+                  </div>
+                )}
+
+                {/* Bottom Caption Container */}
+                <div className="absolute bottom-6 left-6 right-6 z-10 text-white space-y-2">
+                  <span className="text-[11px] font-semibold text-[#879A77] uppercase tracking-wider block" style={{ fontFamily: "'Inter'" }}>
+                    📍 {activeHeroItem.location || "Local Pickup Available"} · Listed by {activeHeroItem.seller}
+                  </span>
+                  <h3 style={{ fontFamily: "'Arvo', serif", fontWeight: 700 }} className="text-xl sm:text-2xl text-white leading-tight">
+                    {activeHeroItem.name}
+                  </h3>
+                  <div className="pt-2 flex items-center justify-between">
+                    <div className="flex items-baseline gap-2">
+                      <span style={{ fontFamily: "'Arvo', serif" }} className="text-xl font-bold text-white">
+                        {fmt(activeHeroItem.price)}
+                      </span>
+                      {activeHeroItem.price > 0 && (
+                        <span className="text-xs text-white/60 line-through">
+                          {fmt(Math.round(activeHeroItem.price * 1.45))}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-[#D7E5F0] group-hover:text-white transition-colors">
+                      <span>View details</span>
+                      <ArrowUpRight size={14} />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="aspect-[4/5] rounded-t-[54px] rounded-b-[32px] bg-[#D7E5F0]/30 border border-[#C5C6C7] flex items-center justify-center text-[#73787C]">
+                <span>No active listings</span>
+              </div>
+            )}
+          </div>
+
+        </div>
+      </section>
+
+
+
+      {/* ─── 3. FEATURED GALLERY LISTINGS (MATCHING USER REFERENCE DESIGN) ─── */}
+      {productsList.length > 0 && spotlightItem0 && (
+        <section className="max-w-7xl mx-auto px-6 py-14">
+          <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-8">
+            <div>
+              <span className="text-xs font-bold text-[#879A77] uppercase tracking-widest block mb-1" style={{ fontFamily: "'Inter'" }}>
+                Editorial Community Spotlight
+              </span>
+              <h2 style={{ fontFamily: "'Arvo', serif", fontWeight: 700 }} className="text-3xl text-[#000000] dark:text-stone-100">
+                Featured Gallery Listings
+              </h2>
+              <p className="text-xs text-[#73787C] mt-1" style={{ fontFamily: "'Inter'" }}>
+                Curated pre-loved wardrobe highlights styled after our signature editorial lookbook
+              </p>
+            </div>
+            <button
+              onClick={() => onNav("discover", "grid")}
+              className="inline-flex items-center gap-1.5 text-xs font-bold text-[#879A77] hover:text-[#554940] transition-colors"
+              style={{ fontFamily: "'Inter'" }}
+            >
+              <span>Explore All Pieces</span>
+              <ArrowRight size={14} />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+            {/* Left Column: Tall Featured Card (Chairs Style) */}
+            <div 
+              onClick={() => onClickProduct(spotlightItem0)}
+              className="lg:col-span-6 bg-[#FAF9F7] dark:bg-card/90 rounded-[32px] p-6 sm:p-8 border border-[#C5C6C7] flex flex-col justify-between group cursor-pointer shadow-xs hover:shadow-xl transition-all duration-300 relative overflow-hidden"
+            >
+              <div>
+                <div className="flex items-center justify-between gap-2 mb-3">
+                  <span className="inline-block px-3 py-1 rounded-full bg-[#E5ECE3] text-[#2B5138] text-[11px] font-bold uppercase tracking-wider" style={{ fontFamily: "'Inter'" }}>
+                    {spotlightItem0.category || "Apparel"} · {spotlightItem0.condition}
+                  </span>
+                  <span className="text-[10px] font-bold bg-[#879A77] text-white px-2.5 py-1 rounded-full shadow-xs uppercase tracking-wider" style={{ fontFamily: "'Inter'" }}>
+                    Spotlight #1
+                  </span>
+                </div>
+
+                <h3 
+                  style={{ fontFamily: "'Arvo', serif", fontWeight: 700 }} 
+                  className="text-2xl sm:text-3xl text-[#000000] dark:text-stone-100 leading-tight group-hover:text-[#879A77] transition-colors mb-3"
+                >
+                  {spotlightItem0.name}
+                </h3>
+
+                <p className="text-xs text-[#73787C] dark:text-stone-300 max-w-md leading-relaxed mb-6 line-clamp-2" style={{ fontFamily: "'Inter'" }}>
+                  {spotlightItem0.description || "Authentic verified pre-loved piece saved from textile waste, in prime condition."}
+                </p>
+
+                {/* Bullets & Specs List */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-2.5 gap-x-4 text-xs text-[#554940] dark:text-stone-300 mb-6" style={{ fontFamily: "'Inter'" }}>
+                  <div className="flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#879A77]" />
+                    <span>Type: <strong>{spotlightItem0.type}</strong></span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#879A77]" />
+                    <span>Condition: <strong>{spotlightItem0.condition}</strong></span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#879A77]" />
+                    <span>Location: <strong>{spotlightItem0.location || "Nearby"}</strong></span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#879A77]" />
+                    <span>Seller: <strong>{spotlightItem0.seller}</strong></span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Large Product Showcase Image */}
+              <div className="relative aspect-[4/3] sm:aspect-[16/10] w-full rounded-[24px] overflow-hidden bg-white dark:bg-muted/40 border border-[#C5C6C7]/70 shadow-inner my-4 flex items-center justify-center">
+                <img 
+                  src={spotlightItem0.image} 
+                  alt={spotlightItem0.name} 
+                  className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end p-4">
+                  <span className="inline-flex items-center gap-1.5 bg-white/95 text-[#554940] text-xs font-bold px-3 py-1.5 rounded-full shadow-md">
+                    <Eye size={13} /> Quick View Details
+                  </span>
+                </div>
+              </div>
+
+              {/* Bottom Price & Action Row */}
+              <div className="flex items-center justify-between pt-4 border-t border-[#C5C6C7]/50 mt-2">
+                <div className="flex items-baseline gap-2">
+                  <span style={{ fontFamily: "'Arvo', serif" }} className="text-2xl sm:text-3xl font-bold text-[#554940] dark:text-[#D7E5F0]">
+                    {fmt(spotlightItem0.price)}
+                  </span>
+                  {spotlightItem0.price > 0 && (
+                    <span className="text-xs text-[#73787C] line-through">
+                      {fmt(Math.round(spotlightItem0.price * 1.45))}
+                    </span>
+                  )}
+                </div>
+                <button 
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); onClickProduct(spotlightItem0); }}
+                  className="px-5 py-2.5 bg-[#879A77] hover:bg-[#554940] text-white rounded-full text-xs font-bold flex items-center gap-2 shadow-xs transition-colors"
+                >
+                  <span>Explore Piece</span>
+                  <ArrowRight size={13} />
+                </button>
+              </div>
+            </div>
+
+            {/* Right Column: Two Stacked Cards (Sofa & Lighting Style) */}
+            <div className="lg:col-span-6 flex flex-col justify-between gap-6">
+              {/* Top Stacked Card: spotlightItem1 */}
+              {spotlightItem1 && (
+                <div 
+                  onClick={() => onClickProduct(spotlightItem1)}
+                  className="bg-[#FAF9F7] dark:bg-card/90 rounded-[28px] p-5 sm:p-6 border border-[#C5C6C7] flex flex-col sm:flex-row items-center justify-between group cursor-pointer shadow-xs hover:shadow-xl transition-all duration-300 gap-5 flex-1"
+                >
+                  <div className="w-full sm:w-[54%] flex flex-col justify-between h-full py-1">
+                    <div>
+                      <span className="inline-block px-3 py-1 rounded-full bg-[#FAF0E6] text-[#C85A32] text-[10px] font-bold uppercase tracking-wider mb-2" style={{ fontFamily: "'Inter'" }}>
+                        {spotlightItem1.category || "Apparel"} · {spotlightItem1.condition}
+                      </span>
+                      <h4 
+                        style={{ fontFamily: "'Arvo', serif", fontWeight: 700 }} 
+                        className="text-lg sm:text-xl text-[#000000] dark:text-stone-100 group-hover:text-[#879A77] transition-colors truncate mb-2"
+                      >
+                        {spotlightItem1.name}
+                      </h4>
+                      <div className="space-y-1 text-xs text-[#554940] dark:text-stone-300 mb-3" style={{ fontFamily: "'Inter'" }}>
+                        <div>• Type: <strong>{spotlightItem1.type}</strong></div>
+                        <div>• Location: <strong>{spotlightItem1.location || "Nearby"}</strong></div>
+                        <div>• Seller: <strong>{spotlightItem1.seller}</strong></div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-3 border-t border-[#C5C6C7]/50 mt-2">
+                      <span style={{ fontFamily: "'Arvo', serif" }} className="text-xl font-bold text-[#554940] dark:text-[#D7E5F0]">
+                        {fmt(spotlightItem1.price)}
+                      </span>
+                      <button 
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); onClickProduct(spotlightItem1); }}
+                        className="w-8 h-8 rounded-full bg-[#879A77] hover:bg-[#554940] text-white flex items-center justify-center transition-all shadow-xs"
+                        title="View details"
+                      >
+                        <ArrowRight size={13} />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="w-full sm:w-[46%] aspect-[4/3] sm:aspect-square rounded-[22px] overflow-hidden bg-white dark:bg-muted/40 border border-[#C5C6C7]/70 shadow-inner flex-shrink-0 flex items-center justify-center">
+                    <img 
+                      src={spotlightItem1.image} 
+                      alt={spotlightItem1.name} 
+                      className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Bottom Stacked Card: spotlightItem2 */}
+              {spotlightItem2 && (
+                <div 
+                  onClick={() => onClickProduct(spotlightItem2)}
+                  className="bg-[#FAF9F7] dark:bg-card/90 rounded-[28px] p-5 sm:p-6 border border-[#C5C6C7] flex flex-col sm:flex-row items-center justify-between group cursor-pointer shadow-xs hover:shadow-xl transition-all duration-300 gap-5 flex-1"
+                >
+                  <div className="w-full sm:w-[54%] flex flex-col justify-between h-full py-1">
+                    <div>
+                      <span className="inline-block px-3 py-1 rounded-full bg-[#EBF2F7] text-[#554940] text-[10px] font-bold uppercase tracking-wider mb-2" style={{ fontFamily: "'Inter'" }}>
+                        {spotlightItem2.category || "Apparel"} · {spotlightItem2.condition}
+                      </span>
+                      <h4 
+                        style={{ fontFamily: "'Arvo', serif", fontWeight: 700 }} 
+                        className="text-lg sm:text-xl text-[#000000] dark:text-stone-100 group-hover:text-[#879A77] transition-colors truncate mb-2"
+                      >
+                        {spotlightItem2.name}
+                      </h4>
+                      <div className="space-y-1 text-xs text-[#554940] dark:text-stone-300 mb-3" style={{ fontFamily: "'Inter'" }}>
+                        <div>• Type: <strong>{spotlightItem2.type}</strong></div>
+                        <div>• Location: <strong>{spotlightItem2.location || "Nearby"}</strong></div>
+                        <div>• Seller: <strong>{spotlightItem2.seller}</strong></div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-3 border-t border-[#C5C6C7]/50 mt-2">
+                      <span style={{ fontFamily: "'Arvo', serif" }} className="text-xl font-bold text-[#554940] dark:text-[#D7E5F0]">
+                        {fmt(spotlightItem2.price)}
+                      </span>
+                      <button 
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); onClickProduct(spotlightItem2); }}
+                        className="w-8 h-8 rounded-full bg-[#879A77] hover:bg-[#554940] text-white flex items-center justify-center transition-all shadow-xs"
+                        title="View details"
+                      >
+                        <ArrowRight size={13} />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="w-full sm:w-[46%] aspect-[4/3] sm:aspect-square rounded-[22px] overflow-hidden bg-white dark:bg-muted/40 border border-[#C5C6C7]/70 shadow-inner flex-shrink-0 flex items-center justify-center">
+                    <img 
+                      src={spotlightItem2.image} 
+                      alt={spotlightItem2.name} 
+                      className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* ─── 4. "OUR PRODUCTS COLLECTIONS" WITH FILTER PILLS & ARCH GALLERY CARDS ─── */}
+      <section className="max-w-7xl mx-auto px-6 py-10">
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-8">
+          <div>
+            <span className="text-xs font-bold text-[#879A77] uppercase tracking-widest block mb-1" style={{ fontFamily: "'Inter'" }}>
+              Curated Community Pieces
+            </span>
+            <h2 style={{ fontFamily: "'Arvo', serif", fontWeight: 700 }} className="text-3xl sm:text-4xl text-[#000000]">
+              Our Products Collections
+            </h2>
+            <p className="text-xs text-[#73787C] mt-1" style={{ fontFamily: "'Inter'" }}>
+              Browse authentic verified listings in your city and nationwide
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => onNav("discover")}
-              className="text-xs font-bold text-primary hover:text-primary/80 flex items-center gap-1 mr-2 px-3 py-1.5 rounded-xl border border-primary/20 hover:bg-primary/5 transition-all"
-            >
-              <span>Browse All Items</span>
-              <ChevronRight size={13} />
-            </button>
-            <span className="text-xs font-semibold text-muted-foreground">Marketplace City:</span>
-            <select 
-              value={activeCity} 
-              onChange={e => onSelectCity && onSelectCity(e.target.value)} 
-              className="bg-card border border-border rounded-xl px-3 py-1.5 text-xs font-bold text-foreground outline-none cursor-pointer focus:border-primary shadow-xs"
-            >
-              {Array.from(new Set([
-                activeCity,
-                ...productsList.map(p => p.location ? p.location.split(',')[0].trim() : '').filter(Boolean),
-                'All'
-              ])).map(c => (
-                <option key={c} value={c}>{c === 'All' ? 'All Cities' : (c === activeCity ? `${c} (Selected)` : c)}</option>
-              ))}
-            </select>
+          {/* Collection Filter Pills & Dynamic City Switcher with Live GPS */}
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <div className="bg-[#FAF9F7] border border-[#C5C6C7] p-1 rounded-full flex items-center shadow-xs">
+              <button
+                onClick={() => setActiveCollectionTab("all")}
+                className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${
+                  activeCollectionTab === "all"
+                    ? "bg-[#879A77] text-white shadow-xs"
+                    : "text-[#554940] hover:text-[#000000]"
+                }`}
+                style={{ fontFamily: "'Inter'" }}
+              >
+                All Products ({productsList.length})
+              </button>
+              <button
+                onClick={() => setActiveCollectionTab("latest")}
+                className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${
+                  activeCollectionTab === "latest"
+                    ? "bg-[#879A77] text-white shadow-xs"
+                    : "text-[#554940] hover:text-[#000000]"
+                }`}
+                style={{ fontFamily: "'Inter'" }}
+              >
+                Latest Drops
+              </button>
+              <button
+                onClick={() => setActiveCollectionTab("swaps")}
+                className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${
+                  activeCollectionTab === "swaps"
+                    ? "bg-[#879A77] text-white shadow-xs"
+                    : "text-[#554940] hover:text-[#000000]"
+                }`}
+                style={{ fontFamily: "'Inter'" }}
+              >
+                Best Swaps
+              </button>
+              <button
+                onClick={() => setActiveCollectionTab("nearby")}
+                className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 ${
+                  activeCollectionTab === "nearby"
+                    ? "bg-[#879A77] text-white shadow-xs"
+                    : "text-[#554940] hover:text-[#000000]"
+                }`}
+                style={{ fontFamily: "'Inter'" }}
+              >
+                <MapPin size={12} className={activeCollectionTab === "nearby" ? "text-white" : "text-[#879A77]"} />
+                <span>Near {activeCity === 'All' ? 'You' : activeCity}</span>
+              </button>
+            </div>
+
+            {/* City selector dropdown & GPS Auto-Detect Button */}
+            <div className="flex items-center gap-1.5 bg-[#FAF9F7] border border-[#C5C6C7] pl-3.5 pr-2 py-1.5 rounded-full shadow-xs">
+              <MapPin size={13} className="text-[#879A77] flex-shrink-0" />
+              <select 
+                value={activeCity} 
+                onChange={e => {
+                  const selected = e.target.value;
+                  if (onSelectCity) onSelectCity(selected);
+                  if (selected !== 'All') {
+                    setActiveCollectionTab("nearby");
+                  }
+                }} 
+                className="bg-transparent text-xs font-bold text-[#554940] outline-none cursor-pointer pr-1"
+              >
+                {Array.from(new Set([
+                  activeCity,
+                  ...productsList.map(p => p.location ? p.location.split(',')[0].trim() : '').filter(Boolean),
+                  'Vikasnagar',
+                  'Dehradun',
+                  'Mumbai',
+                  'All'
+                ])).filter(Boolean).map(c => (
+                  <option key={c} value={c}>{c === 'All' ? 'All Locations' : (c === activeCity ? `${c} (Selected)` : c)}</option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={handleDetectGps}
+                title="Auto-Detect Live Location via GPS"
+                className="w-6 h-6 rounded-full hover:bg-[#D7E5F0] text-[#879A77] hover:text-[#554940] flex items-center justify-center transition-colors shadow-xs"
+              >
+                <Navigation size={11} />
+              </button>
+            </div>
           </div>
         </div>
 
-        {featuredProducts.length === 0 ? (
-          <div className="p-10 rounded-3xl bg-muted/40 border border-border text-center space-y-3">
-            <div className="w-12 h-12 mx-auto rounded-2xl bg-primary/10 text-primary flex items-center justify-center">
-              <MapPin size={24} />
+        {/* Gallery Grid of Real Products in Arch Gallery Silhouette */}
+        {displayedProducts.length === 0 ? (
+          <div className="p-12 rounded-3xl bg-[#D7E5F0]/25 border border-[#C5C6C7] text-center space-y-3">
+            <div className="w-12 h-12 mx-auto rounded-2xl bg-[#879A77]/20 text-[#879A77] flex items-center justify-center">
+              <ShoppingBag size={24} />
             </div>
-            <h3 style={{ fontFamily: "'Plus Jakarta Sans'", fontWeight: 700 }} className="text-base text-foreground">
-              No Listings in {activeCity}
+            <h3 style={{ fontFamily: "'Arvo', serif", fontWeight: 700 }} className="text-lg text-[#000000]">
+              No Items Found in this Filter
             </h3>
-            <p className="text-xs text-muted-foreground max-w-md mx-auto leading-relaxed">
-              No active listings currently found in <strong>{activeCity}</strong>. Because listings are tailored to local pick-ups, items from other cities are hidden.
+            <p className="text-xs text-[#73787C] max-w-md mx-auto leading-relaxed" style={{ fontFamily: "'Inter'" }}>
+              No listings currently match the active filter for <strong>{activeCity}</strong>. You can switch to All Products or list an item!
             </p>
-            <div className="flex items-center justify-center gap-3 pt-2">
+            <div className="flex items-center justify-center gap-3 pt-3">
               <button 
-                onClick={() => onSelectCity && onSelectCity("All")} 
-                className="px-4 py-2 bg-primary text-primary-foreground text-xs font-bold rounded-xl shadow-xs hover:bg-primary/90 transition-colors"
+                onClick={() => setActiveCollectionTab("all")} 
+                className="px-5 py-2.5 bg-[#879A77] text-white text-xs font-bold rounded-full shadow-xs hover:bg-[#554940] transition-colors"
               >
-                Explore All Cities ({productsList.length} items)
+                Show All Products ({productsList.length})
               </button>
               <button 
                 onClick={() => onNav("camera")} 
-                className="px-4 py-2 bg-card border border-border text-foreground text-xs font-bold rounded-xl hover:bg-muted transition-colors"
+                className="px-5 py-2.5 bg-white border border-[#C5C6C7] text-[#554940] text-xs font-bold rounded-full hover:bg-muted transition-colors"
               >
-                List First Item in {activeCity}
+                List a Piece in {activeCity}
               </button>
             </div>
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-            {featuredProducts.map(p => (
-              <ProductCard 
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-5 lg:gap-6 items-stretch">
+            {displayedProducts.map((p, idx) => (
+              <DynamicMosaicProductCard 
                 key={p.id} 
                 p={p} 
+                index={idx}
                 wishlisted={wishlist.includes(p.id)} 
                 onWishlist={() => setWishlist(w => w.includes(p.id) ? w.filter(i => i !== p.id) : [...w, p.id])} 
                 onClickProduct={onClickProduct}
@@ -868,39 +2130,90 @@ function HomePage({
         )}
       </section>
 
-      {/* How It Works */}
-      <section className="bg-secondary/40">
-        <div className="max-w-7xl mx-auto px-6 py-16">
-          <div className="text-center mb-10">
-            <h2 style={{ fontFamily: "'Plus Jakarta Sans'", fontWeight: 700 }} className="text-3xl text-foreground mb-2">How ThreadSwap Works</h2>
-            <p className="text-muted-foreground text-sm" style={{ fontFamily: "'Inter'" }}>Three simple steps to a greener wardrobe</p>
+      {/* ─── 5. FLASH DROPS CALLOUT BANNER ─── */}
+      <section className="max-w-7xl mx-auto px-6 py-10">
+        <div className="rounded-[36px] bg-gradient-to-r from-[#554940] via-[#63564C] to-[#554940] text-white p-8 md:p-12 relative overflow-hidden shadow-2xl flex flex-col md:flex-row items-center justify-between gap-8 border border-[#879A77]/30">
+          <div className="space-y-3 max-w-xl text-center md:text-left z-10">
+            <div className="inline-flex items-center gap-2 bg-[#879A77]/30 backdrop-blur-md rounded-full px-3.5 py-1 text-xs font-bold text-[#D7E5F0]">
+              <Sparkles size={13} />
+              <span>COMMUNITY CIRCULAR EXCHANGE</span>
+            </div>
+            <h2 style={{ fontFamily: "'Arvo', serif", fontWeight: 700 }} className="text-3xl sm:text-4xl text-white leading-tight">
+              Have unworn pieces hanging in your closet?
+            </h2>
+            <p className="text-[#D7E5F0]/90 text-sm leading-relaxed" style={{ fontFamily: "'Inter'" }}>
+              Give them a second life. List in under 60 seconds, connect with local buyers, and save textiles from landfills.
+            </p>
           </div>
+
+          <div className="z-10 flex flex-col sm:flex-row items-center gap-3.5">
+            <button 
+              onClick={() => onNav("camera")}
+              style={{ fontFamily: "'Inter'", fontWeight: 700 }}
+              className="px-8 py-4 bg-[#879A77] hover:bg-white hover:text-[#554940] text-white rounded-full text-sm font-bold shadow-xl hover:scale-105 active:scale-95 transition-all flex items-center gap-2"
+            >
+              <Camera size={16} />
+              <span>List an Item Now</span>
+            </button>
+            <button 
+              onClick={() => onNav("discover")}
+              style={{ fontFamily: "'Inter'", fontWeight: 600 }}
+              className="px-6 py-4 bg-white/15 border border-white/25 text-white rounded-full text-sm font-semibold hover:bg-white/25 transition-all"
+            >
+              Browse All Items
+            </button>
+          </div>
+
+          {/* Ambient background decoration */}
+          <div className="absolute -right-16 -bottom-16 w-80 h-80 rounded-full bg-[#879A77]/10 pointer-events-none blur-2xl" />
+        </div>
+      </section>
+
+      {/* ─── 6. HOW IT WORKS ─── */}
+      <section className="bg-[#FAF9F7] border-t border-[#C5C6C7]/60 py-16">
+        <div className="max-w-7xl mx-auto px-6">
+          <div className="text-center max-w-xl mx-auto mb-12">
+            <span className="text-xs font-bold text-[#879A77] uppercase tracking-widest block mb-1">
+              Simple Process
+            </span>
+            <h2 style={{ fontFamily: "'Arvo', serif", fontWeight: 700 }} className="text-3xl text-[#000000]">
+              How ThreadSwap Works
+            </h2>
+            <p className="text-[#73787C] text-xs mt-1" style={{ fontFamily: "'Inter'" }}>
+              Three effortless steps to a sustainable, circular wardrobe
+            </p>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {[
-              { step: "01", icon: <Camera size={28} />, title: "Photograph & List", desc: "Snap photos of items you no longer need. Fill in a quick form — condition, price, pickup location — and go live in minutes." },
-              { step: "02", icon: <MessageCircle size={28} />, title: "Chat & Negotiate", desc: "Buyers message you directly. Agree on a price, arrange a nearby exchange, or donate freely to your community." },
-              { step: "03", icon: <Leaf size={28} />, title: "Exchange & Impact", desc: "Meet up safely for the handoff. Every exchange keeps textiles out of landfill and earns you EcoSaver points." },
+              { step: "01", icon: <Camera size={26} />, title: "Photograph & List", desc: "Snap quick photos from your mobile device or upload directly. Add condition, tags, and your neighborhood." },
+              { step: "02", icon: <MessageCircle size={26} />, title: "Chat & Agree", desc: "Buyers and swappers message you in real-time. Agree on an exchange, cash amount, or direct wardrobe trade." },
+              { step: "03", icon: <Leaf size={26} />, title: "Exchange & Impact", desc: "Meet up safely for the local handoff. Zero packaging waste, zero shipping friction, 100% circular impact." },
             ].map(s => (
-              <div key={s.step} className="bg-card rounded-2xl border border-border p-6 relative overflow-hidden">
-                <span style={{ fontFamily: "'Plus Jakarta Sans'", fontWeight: 800, fontSize: "48px", color: "rgba(196,98,18,0.07)", lineHeight: 1 }} className="absolute top-4 right-5">{s.step}</span>
-                <div className="w-12 h-12 bg-primary/10 rounded-xl flex items-center justify-center text-primary mb-4">{s.icon}</div>
-                <h3 style={{ fontFamily: "'Plus Jakarta Sans'", fontWeight: 700 }} className="text-foreground text-lg mb-2">{s.title}</h3>
-                <p className="text-muted-foreground text-sm leading-relaxed" style={{ fontFamily: "'Inter'" }}>{s.desc}</p>
+              <div key={s.step} className="bg-white rounded-3xl border border-[#C5C6C7]/70 p-7 relative overflow-hidden shadow-xs hover:shadow-md transition-shadow">
+                <span style={{ fontFamily: "'Arvo', serif", fontWeight: 700, fontSize: "44px", color: "rgba(85, 73, 64, 0.08)", lineHeight: 1 }} className="absolute top-4 right-5">{s.step}</span>
+                <div className="w-12 h-12 bg-[#879A77]/20 text-[#879A77] rounded-2xl flex items-center justify-center mb-5">{s.icon}</div>
+                <h3 style={{ fontFamily: "'Arvo', serif", fontWeight: 700 }} className="text-[#000000] text-lg mb-2">{s.title}</h3>
+                <p className="text-[#73787C] text-xs leading-relaxed" style={{ fontFamily: "'Inter'" }}>{s.desc}</p>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="border-t border-border bg-card">
+      {/* ─── 7. FOOTER ─── */}
+      <footer className="border-t border-[#C5C6C7]/60 bg-white">
         <div className="max-w-7xl mx-auto px-6 py-8 flex flex-col md:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 bg-primary rounded-lg flex items-center justify-center"><RefreshCw size={14} className="text-white" /></div>
-            <span style={{ fontFamily: "'Plus Jakarta Sans'", fontWeight: 700 }} className="text-foreground">ThreadSwap</span>
-            <span className="text-muted-foreground text-xs" style={{ fontFamily: "'Inter'" }}>· Sustainable fashion marketplace</span>
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 flex items-center justify-center flex-shrink-0">
+              <img src="/logo.png" alt="ThreadSwap" className="w-full h-full object-contain dark:invert" />
+            </div>
+            <span style={{ fontFamily: "'Amsterdam One', 'Amsterdam', cursive", fontWeight: 400, fontSize: "22px", lineHeight: 1 }} className="text-[#000000] dark:text-white select-none">
+              ThreadSwap
+            </span>
+            <span className="text-[#73787C] text-xs" style={{ fontFamily: "'Inter'" }}>· Circular fashion marketplace</span>
           </div>
-          <p className="text-xs text-muted-foreground" style={{ fontFamily: "'Inter'" }}>© 2026 ThreadSwap. Thrift. Exchange. Sustain.</p>
+          <p className="text-xs text-[#73787C]" style={{ fontFamily: "'Inter'" }}>© 2026 ThreadSwap. Thrift. Exchange. Sustain.</p>
         </div>
       </footer>
     </div>
@@ -923,6 +2236,12 @@ function DiscoverPage({
   onSelectCity?: (city: string) => void;
 }) {
   const [view, setView] = useState<"grid" | "map">(initialView);
+
+  useEffect(() => {
+    if (initialView) {
+      setView(initialView);
+    }
+  }, [initialView]);
   const [search, setSearch] = useState("");
   const [activeCat, setActiveCat] = useState("All");
   const [conditions, setConditions] = useState<string[]>([]);
@@ -1171,21 +2490,29 @@ function DiscoverPage({
           <AnimatePresence mode="wait">
             {view === "grid" ? (
               <motion.div key="grid" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
-                  {filtered.map(p => {
-                    const aiData = aiScores[String(p.id)] || aiScores[p.name.toLowerCase().trim()];
-                    return (
-                      <ProductCard 
-                        key={p.id} 
-                        p={p} 
-                        wishlisted={wishlist.includes(p.id)} 
-                        onWishlist={() => setWishlist(w => w.includes(p.id) ? w.filter(i => i !== p.id) : [...w, p.id])} 
-                        onClickProduct={onClickProduct}
-                        aiScore={aiMode ? (aiData ? aiData.score : (matchesDomainFrontend(p, search) ? 0.95 : undefined)) : undefined}
-                      />
-                    );
-                  })}
-                </div>
+                {filtered.length === 0 ? (
+                  <div className="p-12 text-center bg-[#FAF9F7] dark:bg-card/90 rounded-[28px] border border-[#C5C6C7]">
+                    <p className="text-[#554940] dark:text-stone-300 font-bold text-base mb-1" style={{ fontFamily: "'Arvo', serif" }}>No items found</p>
+                    <p className="text-[#73787C] text-xs">Try adjusting your filters or search keywords.</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-12 gap-5 lg:gap-6 items-stretch [grid-auto-flow:dense]">
+                    {filtered.map((p, idx) => {
+                      const aiData = aiScores[String(p.id)] || aiScores[p.name.toLowerCase().trim()];
+                      return (
+                        <DynamicMosaicProductCard 
+                          key={p.id} 
+                          p={p} 
+                          index={idx}
+                          wishlisted={wishlist.includes(p.id)} 
+                          onWishlist={() => setWishlist(w => w.includes(p.id) ? w.filter(i => i !== p.id) : [...w, p.id])} 
+                          onClickProduct={onClickProduct}
+                          aiScore={aiMode ? (aiData ? aiData.score : (matchesDomainFrontend(p, search) ? 0.95 : undefined)) : undefined}
+                        />
+                      );
+                    })}
+                  </div>
+                )}
               </motion.div>
             ) : (
               <motion.div key="map" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
@@ -1246,8 +2573,10 @@ function LoginPage({ onDone, onLogin }: { onDone: () => void; onLogin: (user: { 
       {/* Left Branding Panel */}
       <div className="hidden lg:flex flex-col w-[480px] flex-shrink-0 bg-primary relative overflow-hidden p-12 text-white">
         <div className="relative flex items-center gap-3 mb-auto">
-          <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center border border-white/30"><RefreshCw size={20} className="text-white" /></div>
-          <span style={{ fontFamily: "'Plus Jakarta Sans'", fontWeight: 800, fontSize: "22px" }}>ReWear</span>
+          <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center border border-white/30 p-1.5 overflow-hidden">
+            <img src="/logo.png" alt="ThreadSwap" className="w-full h-full object-contain brightness-0 invert" />
+          </div>
+          <span style={{ fontFamily: "'Amsterdam One', 'Amsterdam', cursive", fontWeight: 400, fontSize: "32px" }}>ThreadSwap</span>
         </div>
         <div className="relative mt-auto space-y-4">
           <h2 style={{ fontFamily: "'Plus Jakarta Sans'", fontWeight: 800, lineHeight: 1.15 }} className="text-4xl text-white">Thrift.<br />Exchange.<br />Sustain.</h2>
@@ -1357,8 +2686,8 @@ function ListingFormPage({ photos, locationCoords, onPublish, authUser }: {
       seller: authUser?.name || "Anonymous",
       sellerEmail: authUser?.email || "",
       sellerAvatar: (authUser?.name || "A").slice(0, 2).toUpperCase(),
-      rating: 5.0,
-      reviews: 1,
+      rating: 0,
+      reviews: 0,
       distance: "0.4 km",
       location: locationCoords?.name || "Vikasnagar, Dehradun",
       lat: locationCoords?.lat || 30.4035,
@@ -1378,7 +2707,7 @@ function ListingFormPage({ photos, locationCoords, onPublish, authUser }: {
         </div>
 
         {/* Location Tag Confirmation */}
-        <div className="p-3.5 rounded-2xl bg-[#c46212]/10 border border-[#c46212]/20 flex items-center justify-between text-xs font-semibold text-foreground">
+        <div className="p-3.5 rounded-2xl bg-[#D7E5F0]/60 border border-[#C5C6C7] flex items-center justify-between text-xs font-semibold text-foreground">
           <div className="flex items-center gap-2">
             <MapPin className="w-4 h-4 text-primary" />
             <span>
@@ -2631,7 +3960,7 @@ function ProfilePage({
       <div className="max-w-6xl mx-auto px-6 py-10 space-y-8">
         
         {/* Profile Header Hero */}
-        <div className="bg-gradient-to-r from-[#c46212] to-[#e07b22] rounded-3xl p-8 text-white shadow-lg relative overflow-hidden">
+        <div className="bg-gradient-to-r from-[#554940] via-[#65584e] to-[#879A77] rounded-3xl p-8 text-white shadow-lg relative overflow-hidden border border-[#C5C6C7]/50">
           <div className="absolute right-0 top-0 bottom-0 w-1/3 bg-white/5 skew-x-12 pointer-events-none" />
           <div className="relative flex flex-col md:flex-row items-center md:items-start gap-6">
             
@@ -2792,7 +4121,7 @@ function ProfilePage({
                           <button 
                             onClick={() => handleToggleSold(p.id)}
                             className={`px-3 py-2 rounded-xl text-xs font-bold transition-colors ${
-                              isSold ? "bg-muted text-muted-foreground" : "bg-emerald-600 hover:bg-emerald-700 text-white"
+                              isSold ? "bg-muted text-muted-foreground" : "bg-[#879A77] hover:bg-[#554940] text-white"
                             }`}
                           >
                             {isSold ? "Mark Available" : "Mark Sold"}
@@ -2928,7 +4257,7 @@ function ProfilePage({
                           </button>
                         ) : (
                           <div className="flex items-center gap-2">
-                            <span className="text-[11px] font-bold text-emerald-600 flex items-center gap-1">
+                            <span className="text-[11px] font-bold text-[#879A77] flex items-center gap-1">
                               <Check size={12} /> Active for Marketplace
                             </span>
                             <button
@@ -2987,10 +4316,10 @@ function ProfilePage({
                         <div>
                           <div className="flex items-center gap-2">
                             <h4 className="text-sm font-bold text-foreground">{pur.item}</h4>
-                            <span className="text-[10px] font-bold px-2 py-0.5 bg-blue-100 dark:bg-blue-950 text-blue-600 rounded-full">PURCHASE</span>
+                            <span className="text-[10px] font-bold px-2.5 py-0.5 bg-[#D7E5F0] text-[#554940] rounded-full border border-[#C5C6C7]/50">PURCHASE</span>
                           </div>
                           <p className="text-xs text-muted-foreground">Bought from {pur.seller} · {pur.date}</p>
-                          <span className="text-[10px] font-bold text-emerald-600">{pur.status}</span>
+                          <span className="text-[10px] font-bold text-[#879A77]">{pur.status}</span>
                         </div>
                       </div>
                       <span className="text-sm font-bold text-primary">{fmt(pur.price)}</span>
@@ -3001,16 +4330,16 @@ function ProfilePage({
                   {(historyFilter === "all" || historyFilter === "swaps") && swaps.map((swp: any) => (
                     <div key={swp.id} className="bg-card rounded-2xl border border-border p-4 flex items-center justify-between gap-4 shadow-xs hover:border-primary/40 transition-all">
                       <div className="flex items-center gap-3">
-                        <div className="w-14 h-14 rounded-xl bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
+                        <div className="w-14 h-14 rounded-xl bg-[#879A77]/15 text-[#879A77] flex items-center justify-center flex-shrink-0">
                           <Repeat size={22} />
                         </div>
                         <div>
                           <div className="flex items-center gap-2">
                             <h4 className="text-sm font-bold text-foreground">{swp.offeredItem} ⇄ {swp.receivedItem}</h4>
-                            <span className="text-[10px] font-bold px-2 py-0.5 bg-amber-100 dark:bg-amber-950 text-amber-600 rounded-full">SWAP</span>
+                            <span className="text-[10px] font-bold px-2.5 py-0.5 bg-[#C9AD93]/30 text-[#554940] rounded-full border border-[#C9AD93]/50">SWAP</span>
                           </div>
                           <p className="text-xs text-muted-foreground">Traded with {swp.partner} on {swp.date}</p>
-                          <span className="text-[10px] font-bold text-emerald-600">{swp.status}</span>
+                          <span className="text-[10px] font-bold text-[#879A77]">{swp.status}</span>
                         </div>
                       </div>
                       <span className="text-xs font-bold text-muted-foreground">Trade Free</span>
@@ -3250,6 +4579,8 @@ function ProfilePage({
 // ─── ROOT APP ─────────────────────────────────────────────────────────────────
 
 export default function App() {
+  const [showSplash, setShowSplash] = useState(true);
+  const [pageHistory, setPageHistory] = useState<Page[]>([]);
   const [darkMode, setDarkMode] = useState(false);
   const [page, setPage] = useState<Page>("home");
   const [discoverInitialView, setDiscoverInitialView] = useState<"grid" | "map">("grid");
@@ -3265,15 +4596,54 @@ export default function App() {
     localStorage.setItem('authUser', JSON.stringify(updated));
   };
 
-  // Active marketplace city — defaults to Mumbai (matches user's registered address)
+  // Active marketplace city — defaults dynamically (defaults to Vikasnagar, primary active hub)
   const [activeCity, setActiveCity] = useState<string>(() => {
-    return localStorage.getItem('userActiveCity') || 'Mumbai';
+    return localStorage.getItem('userActiveCity') || 'Vikasnagar';
   });
 
   const handleSelectCity = (city: string) => {
     setActiveCity(city);
     localStorage.setItem('userActiveCity', city);
   };
+
+  // Auto-detect user's real city via GPS on initial load if not explicitly saved
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'geolocation' in navigator && !localStorage.getItem('userActiveCity')) {
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          const lat = pos.coords.latitude;
+          const lng = pos.coords.longitude;
+          if (Math.abs(lat - 30.4035) < 0.4 && Math.abs(lng - 77.9340) < 0.4) {
+            setActiveCity('Vikasnagar');
+            localStorage.setItem('userActiveCity', 'Vikasnagar');
+            return;
+          }
+          if (Math.abs(lat - 30.3165) < 0.5 && Math.abs(lng - 78.0322) < 0.5) {
+            setActiveCity('Dehradun');
+            localStorage.setItem('userActiveCity', 'Dehradun');
+            return;
+          }
+          if (Math.abs(lat - 19.0760) < 0.6 && Math.abs(lng - 72.8777) < 0.6) {
+            setActiveCity('Mumbai');
+            localStorage.setItem('userActiveCity', 'Mumbai');
+            return;
+          }
+          try {
+            const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
+            if (res.ok) {
+              const data = await res.json();
+              const detectedCity = data.address?.city || data.address?.town || data.address?.suburb || data.address?.village || data.address?.state_district;
+              if (detectedCity) {
+                setActiveCity(detectedCity);
+                localStorage.setItem('userActiveCity', detectedCity);
+              }
+            }
+          } catch (e) {}
+        },
+        () => {}
+      );
+    }
+  }, []);
 
   // Sync activeCity with user's saved default address whenever logged in
   useEffect(() => {
@@ -3438,7 +4808,7 @@ export default function App() {
     document.documentElement.classList.toggle("dark", darkMode);
   }, [darkMode]);
 
-  const goNav = (p: Page, mode?: string) => {
+  const goNav = (p: Page, mode?: string, addToHistory = true) => {
     if (p === "camera" || p === "listing_form" || p === "inbox" || p === "chat") {
       if (!authUser) {
         alert("Please sign in to view messages or list an item on ThreadSwap!");
@@ -3447,22 +4817,42 @@ export default function App() {
         return;
       }
     }
+    if (addToHistory && p !== page) {
+      setPageHistory(prev => [...prev, page]);
+    }
     if (p === "inbox" || p === "discover" || p === "home" || p === "profile" || p === "map") {
       setChatTargetSeller(null);
       setChatTargetProduct(null);
     }
-    if (mode === "map") {
+    if (p === "map" || mode === "map") {
       setDiscoverInitialView("map");
-      setPage("discover");
-    } else if (p === "map") {
-      setDiscoverInitialView("map");
-      setPage("discover");
+      setPage("map");
     } else {
       if (p === "discover") setDiscoverInitialView("grid");
       setPage(p);
     }
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
+
+  const handleGoBack = () => {
+    if (selectedProduct) {
+      setSelectedProduct(null);
+      return;
+    }
+    if (selectedSellerName) {
+      setSelectedSellerName(null);
+      return;
+    }
+    if (pageHistory.length > 0) {
+      const prev = pageHistory[pageHistory.length - 1];
+      setPageHistory(prevList => prevList.slice(0, -1));
+      goNav(prev, undefined, false);
+    } else if (page !== "home") {
+      goNav("home", undefined, false);
+    }
+  };
+
+  const canGoBack = page !== "home" || pageHistory.length > 0 || Boolean(selectedProduct) || Boolean(selectedSellerName);
 
   const handleLogin = (user: { name: string; email: string }) => {
     const handle = getCleanUserHandle(user.name || user.email).toLowerCase();
@@ -3584,8 +4974,8 @@ export default function App() {
   const renderPage = () => {
     switch (page) {
       case "home": return <HomePage productsList={productsList} onNav={goNav} onClickProduct={(p) => setSelectedProduct(p)} activeCity={activeCity} onSelectCity={handleSelectCity} />;
-      case "discover": return <DiscoverPage productsList={productsList} initialView={discoverInitialView} onClickProduct={(p) => setSelectedProduct(p)} activeCity={activeCity} onSelectCity={handleSelectCity} />;
-      case "map": return <DiscoverPage productsList={productsList} initialView="map" onClickProduct={(p) => setSelectedProduct(p)} activeCity={activeCity} onSelectCity={handleSelectCity} />;
+      case "discover": return <DiscoverPage key={`discover-${discoverInitialView}`} productsList={productsList} initialView={discoverInitialView} onClickProduct={(p) => setSelectedProduct(p)} activeCity={activeCity} onSelectCity={handleSelectCity} />;
+      case "map": return <DiscoverPage key="map-page-view" productsList={productsList} initialView="map" onClickProduct={(p) => setSelectedProduct(p)} activeCity={activeCity} onSelectCity={handleSelectCity} />;
       case "login": return <LoginPage onDone={() => goNav("home")} onLogin={handleLogin} />;
       case "camera": return (
         <CameraUploadModal
@@ -3638,15 +5028,17 @@ export default function App() {
   };
 
   return (
-    <div className={`${darkMode ? "dark" : ""} min-h-screen bg-background`} style={{ fontFamily: "'Inter', sans-serif" }}>
+    <div className={`${darkMode ? "dark" : ""} min-h-screen bg-background pb-28`} style={{ fontFamily: "'Inter', sans-serif" }}>
+      <AnimatePresence>
+        {showSplash && <IntroSplash onFinish={() => setShowSplash(false)} />}
+      </AnimatePresence>
+
       <TopNav 
         page={page} 
         onNav={goNav} 
-        darkMode={darkMode} 
-        onToggleDark={() => setDarkMode(d => !d)} 
-        unread={totalUnreadCount}
-        authUser={authUser}
-        onLogout={handleLogout}
+        canGoBack={canGoBack}
+        onGoBack={handleGoBack}
+        isSplashActive={showSplash}
       />
       
       <AnimatePresence mode="wait">
@@ -3654,6 +5046,18 @@ export default function App() {
           {renderPage()}
         </motion.div>
       </AnimatePresence>
+
+      <BottomControlsBar 
+        page={page} 
+        onNav={goNav} 
+        darkMode={darkMode} 
+        onToggleDark={() => setDarkMode(d => !d)} 
+        unread={totalUnreadCount}
+        authUser={authUser}
+        onLogout={handleLogout}
+        canGoBack={canGoBack}
+        onGoBack={handleGoBack}
+      />
 
       {/* Product Detail Modal */}
       {selectedProduct && (

@@ -1,1 +1,21 @@
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&family=Inter:wght@300;400;500;600;700&display=swap');
+
+@font-face {
+  font-family: 'Amsterdam One';
+  src: url('/fonts/AmsterdamOne.woff') format('woff'),
+       url('/fonts/Amsterdam.ttf') format('truetype'),
+       url('https://fonts.cdnfonts.com/s/17992/Amsterdam.woff') format('woff');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Amsterdam';
+  src: url('/fonts/AmsterdamOne.woff') format('woff'),
+       url('/fonts/Amsterdam.ttf') format('truetype'),
+       url('https://fonts.cdnfonts.com/s/17992/Amsterdam.woff') format('woff');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}

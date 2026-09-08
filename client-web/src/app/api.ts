@@ -40,8 +40,8 @@ export async function fetchProductsFromBackend(lat?: number, lng?: number, radiu
         image: imgList[0],
         images: imgList,
         category: item.categoryName || 'Tops',
-        rating: 4.8,
-        reviews: 12,
+        rating: typeof item.rating === 'number' ? item.rating : 0,
+        reviews: typeof item.reviews === 'number' ? item.reviews : 0,
         description: item.description,
         location: item.locationName || (item.latitude && item.longitude ? (
           (Math.abs(item.latitude - 30.4035) < 0.25 && Math.abs(item.longitude - 77.9340) < 0.25)
