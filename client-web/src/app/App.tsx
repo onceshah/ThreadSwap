@@ -247,7 +247,7 @@ function IntroSplash({ onFinish }: { onFinish: () => void }) {
 
 // ─── TOP NAV (DYNAMIC ON SCROLL: CENTER -> FULLY TO SIDE & SCALES DOWN) ──────
 
-function TopNav({ page, onNav, canGoBack, onGoBack, isSplashActive }: {
+function TopNav({ page, onNav, isSplashActive }: {
   page: Page; onNav: (p: Page, mode?: string) => void;
   canGoBack?: boolean;
   onGoBack?: () => void;
@@ -255,8 +255,7 @@ function TopNav({ page, onNav, canGoBack, onGoBack, isSplashActive }: {
 }) {
   const { scrollY } = useScroll();
 
-  const hasBack = Boolean(canGoBack && onGoBack && page !== "home");
-  const targetLeftPx = hasBack ? 72 : 24;
+  const targetLeftPx = 24;
 
   // Fluid physics spring: extended range (0 - 240px) + tuned spring for butter-smooth transition
   const rawProgress = useTransform(scrollY, [0, 240], [0, 1]);
@@ -292,18 +291,6 @@ function TopNav({ page, onNav, canGoBack, onGoBack, isSplashActive }: {
       <div 
         className="w-full px-4 sm:px-6 md:px-8 relative overflow-visible flex items-center h-[78px]"
       >
-        {/* On sub-pages, allow top-left back button */}
-        {hasBack && (
-          <button 
-            onClick={onGoBack} 
-            aria-label="Go Back"
-            className="absolute left-4 md:left-6 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-foreground bg-muted/80 hover:bg-muted border border-border/50 transition-all shadow-xs group"
-            style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}
-          >
-            <ChevronLeft size={16} className="text-primary transition-transform group-hover:-translate-x-0.5" />
-            <span className="hidden sm:inline">Back</span>
-          </button>
-        )}
 
         {/* Dynamic ThreadSwap: Center -> FULLY TO SIDE with GPU transform & spring smoothness */}
         <motion.div
@@ -2669,9 +2656,11 @@ function ListingFormPage({ photos, locationCoords, onPublish, authUser }: {
 
   const handlePublish = async (e: React.FormEvent) => {
     e.preventDefault();
-    const itemPhotos = photos && photos.length > 0 
-      ? photos 
-      : ["https://images.unsplash.com/photo-1591047139829-d91aecb6caea?w=800&h=600&fit=crop&auto=format"];
+    const itemPhotos = photos && photos.length > 0 ? photos : [];
+    if (itemPhotos.length === 0) {
+      alert("Please add at least one photo for your listing.");
+      return;
+    }
 
     const itemData = {
       id: Date.now(),

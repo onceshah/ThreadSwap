@@ -8,9 +8,7 @@ interface CameraUploadModalProps {
 
 export default function CameraUploadModal({ onPhotosConfirmed, onClose }: CameraUploadModalProps) {
   const [activeTab, setActiveTab] = useState<'camera' | 'upload'>('upload');
-  const [photos, setPhotos] = useState<string[]>([
-    'https://images.unsplash.com/photo-1591047139829-d91aecb6caea?w=800&h=600&fit=crop&auto=format'
-  ]);
+  const [photos, setPhotos] = useState<string[]>([]);
   
   // Geolocation state
   const [locationStatus, setLocationStatus] = useState<'prompt' | 'granted' | 'denied'>('prompt');
@@ -32,14 +30,6 @@ export default function CameraUploadModal({ onPhotosConfirmed, onClose }: Camera
     "Dadar, Mumbai": { lat: 19.0178, lng: 72.8478 },
     "Colaba, Mumbai": { lat: 18.9067, lng: 72.8147 },
   };
-
-  const sampleImages = [
-    { name: "Linen Blazer", url: "https://images.unsplash.com/photo-1591047139829-d91aecb6caea?w=800&h=600&fit=crop&auto=format" },
-    { name: "Leather Jacket", url: "https://images.unsplash.com/photo-1551028719-00167b16eac5?w=800&h=600&fit=crop&auto=format" },
-    { name: "Denim Jeans", url: "https://images.unsplash.com/photo-1542272604-787c3835535d?w=800&h=600&fit=crop&auto=format" },
-    { name: "Sneakers", url: "https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=800&h=600&fit=crop&auto=format" },
-    { name: "Kurta", url: "https://images.unsplash.com/photo-1583391733956-6c78276477e2?w=800&h=600&fit=crop&auto=format" }
-  ];
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -189,6 +179,10 @@ export default function CameraUploadModal({ onPhotosConfirmed, onClose }: Camera
   };
 
   const handleFinish = async () => {
+    if (photos.length === 0) {
+      alert("Please upload or capture at least one photo of your item before proceeding.");
+      return;
+    }
     stopCamera();
     const compressedPhotos = await Promise.all(photos.map(p => p.startsWith('data:') ? compressImage(p) : Promise.resolve(p)));
     onPhotosConfirmed(compressedPhotos, userCoords);
@@ -267,7 +261,7 @@ export default function CameraUploadModal({ onPhotosConfirmed, onClose }: Camera
               }`}
             >
               <Upload className="w-4 h-4" />
-              <span>Device File Upload & Samples</span>
+              <span>Device File Upload</span>
             </button>
             <button
               type="button"
@@ -309,37 +303,6 @@ export default function CameraUploadModal({ onPhotosConfirmed, onClose }: Camera
                         Click to upload photos from device
                       </h3>
                       <p className="text-[11px] text-muted-foreground mt-0.5">Supports PNG, JPG, WEBP</p>
-                    </div>
-                  </div>
-
-                  {/* Sample Test Images One-Click Selector */}
-                  <div className="p-3.5 rounded-2xl bg-card border border-border space-y-2">
-                    <span className="text-[11px] font-bold text-foreground block">
-                      ✨ Or Choose a Sample Test Image:
-                    </span>
-                    <div className="grid grid-cols-5 gap-2">
-                      {sampleImages.map((s, idx) => {
-                        const isSelected = photos.includes(s.url);
-                        return (
-                          <div 
-                            key={idx}
-                            onClick={() => setPhotos(prev => isSelected ? prev.filter(p => p !== s.url) : [...prev, s.url])}
-                            className={`group cursor-pointer rounded-xl overflow-hidden border relative aspect-square transition-all ${
-                              isSelected ? 'border-primary ring-2 ring-primary/40 shadow-sm' : 'border-border hover:border-primary'
-                            }`}
-                          >
-                            <img src={s.url} alt={s.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
-                            {isSelected && (
-                              <span className="absolute top-1 right-1 bg-primary text-white text-[9px] w-4 h-4 rounded-full flex items-center justify-center font-bold shadow-xs">
-                                ✓
-                              </span>
-                            )}
-                            <span className="absolute bottom-0 inset-x-0 bg-black/70 text-white text-[8px] font-bold text-center py-0.5 truncate px-1">
-                              {s.name}
-                            </span>
-                          </div>
-                        );
-                      })}
                     </div>
                   </div>
                 </div>
@@ -432,11 +395,21 @@ export default function CameraUploadModal({ onPhotosConfirmed, onClose }: Camera
               <button
                 type="button"
                 onClick={handleFinish}
-                className="w-full py-4 rounded-2xl bg-primary text-white text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg hover:bg-primary/90 transition-colors"
+                disabled={photos.length === 0}
+                className={`w-full py-4 rounded-2xl text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg transition-all ${
+                  photos.length === 0
+                    ? "bg-muted text-muted-foreground cursor-not-allowed opacity-60"
+                    : "bg-primary text-white hover:bg-primary/90"
+                }`}
               >
                 <span>Continue to Item Details</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
+              {photos.length === 0 && (
+                <p className="text-[11px] text-muted-foreground text-center">
+                  Upload or capture at least 1 photo to proceed
+                </p>
+              )}
 
             </div>
 
