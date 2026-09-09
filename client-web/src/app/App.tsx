@@ -40,6 +40,7 @@ interface ChatThread {
   id: number; name: string; avatar: string;
   productThumb: string; productTitle: string; productPrice: number;
   lastMsg: string; time: string; unread: number;
+  partnerEmail?: string;
 }
 
 interface Review {
@@ -494,23 +495,31 @@ function BottomControlsBar({ page, onNav, darkMode, onToggleDark, unread, authUs
 
 // ─── SELLER PROFILE MODAL ────────────────────────────────────────────────────
 
-function SellerProfileModal({ sellerName, sellerAvatar, products, onClose, onStartChat, authUser }: {
-  sellerName: string; sellerAvatar?: string; products: Product[]; onClose: () => void; onStartChat: (seller: string, prod: Product) => void; authUser?: { name: string; email: string } | null;
+function SellerProfileModal({ sellerName, sellerEmail, sellerAvatar, products, onClose, onStartChat, authUser }: {
+  sellerName: string; sellerEmail?: string; sellerAvatar?: string; products: Product[]; onClose: () => void; onStartChat: (seller: string, prod: Product) => void; authUser?: { name: string; email: string } | null;
 }) {
   const currentHandle = getCleanUserHandle(authUser?.name || authUser?.email || '').toLowerCase();
   const targetClean = getCleanUserHandle(sellerName).toLowerCase();
-  const isOwnProfile = currentHandle && targetClean && currentHandle === targetClean;
+  const userEmail = (authUser?.email || '').toLowerCase().trim();
+  const targetEmail = (sellerEmail || '').toLowerCase().trim();
+  const isOwnProfile = (targetEmail && userEmail && targetEmail === userEmail) || (!targetEmail && currentHandle && targetClean && currentHandle === targetClean);
 
   const sellerProducts = products.filter(p => {
     if (!p.seller) return false;
+    const pEmail = (p.sellerEmail || '').toLowerCase().trim();
+
+    // 1. If both have registered email, strictly match email
+    if (targetEmail && pEmail) {
+      return pEmail === targetEmail;
+    }
+    // 2. If viewing a profile that has an email, don't show items that don't match that email
+    if (targetEmail && !pEmail) {
+      return false;
+    }
+    // 3. Fallback for legacy items without email
     const sClean = getCleanUserHandle(p.seller).toLowerCase();
-    const sName = p.seller.toLowerCase();
-    const sEmail = (p.sellerEmail || '').toLowerCase();
-    return sClean === targetClean ||
-           sName === targetClean ||
-           sName.includes(targetClean) ||
-           targetClean.includes(sName) ||
-           sEmail === targetClean;
+    const sName = p.seller.toLowerCase().trim();
+    return sClean === targetClean || sName === targetClean;
   });
 
   const reviews = mockReviews[sellerName] || [];
@@ -666,7 +675,7 @@ function ProductDetailModal({ product, onClose, onStartChat, onViewSellerProfile
   product: Product; 
   onClose: () => void; 
   onStartChat: (seller: string, prod: Product) => void; 
-  onViewSellerProfile: (seller: string) => void;
+  onViewSellerProfile: (seller: string, sellerEmail?: string) => void;
   onDelistProduct?: (productId: number | string) => void;
   authUser?: { name: string; email: string } | null;
 }) {
@@ -810,7 +819,7 @@ function ProductDetailModal({ product, onClose, onStartChat, onViewSellerProfile
 
               {/* Seller Card Banner */}
               <div 
-                onClick={() => onViewSellerProfile(product.seller)}
+                onClick={() => onViewSellerProfile(product.seller, product.sellerEmail)}
                 className="p-3 rounded-2xl bg-muted/50 border border-border flex items-center justify-between cursor-pointer hover:border-primary transition-all group"
               >
                 <div className="flex items-center gap-2.5">
@@ -2796,18 +2805,31 @@ function ListingFormPage({ photos, locationCoords, onPublish, authUser }: {
 
 // ─── INBOX PAGE WITH ISOLATED CHAT MESSAGES PER RECIPIENT ────────────────────
 
-function InboxPage({ activeTargetSeller, activeTargetProduct, onViewSellerProfile, authUser }: {
-  activeTargetSeller?: string; activeTargetProduct?: Product; onViewSellerProfile: (seller: string) => void;
+function InboxPage({ 
+  activeTargetSeller, 
+  activeTargetSellerEmail,
+  activeTargetProduct, 
+  onViewSellerProfile, 
+  authUser,
+  productsList
+}: {
+  activeTargetSeller?: string; 
+  activeTargetSellerEmail?: string;
+  activeTargetProduct?: Product; 
+  onViewSellerProfile: (seller: string, sellerEmail?: string) => void;
   authUser: { name: string; email: string } | null;
+  productsList?: Product[];
 }) {
-  const computeStableId = (seller?: string | null) => {
-    if (!seller) return 5000;
-    const clean = getCleanUserHandle(seller).toLowerCase();
+  const computeStableId = (identifier?: string | null) => {
+    if (!identifier) return 5000;
+    const clean = identifier.trim().toLowerCase();
     return clean.split('').reduce((a, c) => a + c.charCodeAt(0), 5000);
   };
 
   const cleanSellerName = activeTargetSeller ? getCleanUserHandle(activeTargetSeller) : undefined;
+  const targetSellerEmail = (activeTargetSellerEmail || activeTargetProduct?.sellerEmail)?.trim().toLowerCase();
   const currentHandle = getCleanUserHandle(authUser?.name || authUser?.email).toLowerCase();
+  const currentEmail = authUser?.email?.trim().toLowerCase() || '';
 
   const getDeletedTimestamps = (): Record<string, number> => {
     try {
@@ -2816,6 +2838,16 @@ function InboxPage({ activeTargetSeller, activeTargetProduct, onViewSellerProfil
       if (stored) return JSON.parse(stored);
     } catch {}
     return {};
+  };
+
+  const isThreadMatch = (t: ChatThread) => {
+    if (targetSellerEmail && t.partnerEmail) {
+      return t.partnerEmail.toLowerCase() === targetSellerEmail;
+    }
+    if (targetSellerEmail && !t.partnerEmail) {
+      return false;
+    }
+    return Boolean(cleanSellerName && t.name.toLowerCase() === cleanSellerName.toLowerCase());
   };
 
   const [threads, setThreads] = useState<ChatThread[]>(() => {
@@ -2831,13 +2863,17 @@ function InboxPage({ activeTargetSeller, activeTargetProduct, onViewSellerProfil
       }
     } catch {}
 
-    if (cleanSellerName && cleanSellerName.toLowerCase() !== currentHandle) {
-      const existing = base.find(t => t.name.toLowerCase() === cleanSellerName.toLowerCase());
+    const isSelf = (targetSellerEmail && currentEmail && targetSellerEmail === currentEmail) ||
+                   (!targetSellerEmail && cleanSellerName && cleanSellerName.toLowerCase() === currentHandle);
+
+    if ((targetSellerEmail || cleanSellerName) && !isSelf) {
+      const existing = base.find(isThreadMatch);
       if (!existing) {
         const newThread: ChatThread = {
-          id: computeStableId(cleanSellerName),
-          name: cleanSellerName,
-          avatar: cleanSellerName.slice(0, 2).toUpperCase(),
+          id: computeStableId(targetSellerEmail || cleanSellerName),
+          name: cleanSellerName || getCleanUserHandle(targetSellerEmail),
+          partnerEmail: targetSellerEmail,
+          avatar: (cleanSellerName || getCleanUserHandle(targetSellerEmail)).slice(0, 2).toUpperCase(),
           productThumb: activeTargetProduct?.image || 'https://images.unsplash.com/photo-1591047139829-d91aecb6caea?w=200&h=200&fit=crop&auto=format',
           productTitle: activeTargetProduct?.name || 'ThreadSwap Item',
           productPrice: activeTargetProduct?.price || 1500,
@@ -2854,13 +2890,17 @@ function InboxPage({ activeTargetSeller, activeTargetProduct, onViewSellerProfil
   });
 
   const [activeThread, setActiveThread] = useState<ChatThread>(() => {
-    if (cleanSellerName && cleanSellerName.toLowerCase() !== currentHandle) {
-      const match = threads.find(t => t.name.toLowerCase() === cleanSellerName.toLowerCase());
+    const isSelf = (targetSellerEmail && currentEmail && targetSellerEmail === currentEmail) ||
+                   (!targetSellerEmail && cleanSellerName && cleanSellerName.toLowerCase() === currentHandle);
+
+    if ((targetSellerEmail || cleanSellerName) && !isSelf) {
+      const match = threads.find(isThreadMatch);
       if (match) return match;
       return {
-        id: computeStableId(cleanSellerName),
-        name: cleanSellerName,
-        avatar: cleanSellerName.slice(0, 2).toUpperCase(),
+        id: computeStableId(targetSellerEmail || cleanSellerName),
+        name: cleanSellerName || getCleanUserHandle(targetSellerEmail),
+        partnerEmail: targetSellerEmail,
+        avatar: (cleanSellerName || getCleanUserHandle(targetSellerEmail)).slice(0, 2).toUpperCase(),
         productThumb: activeTargetProduct?.image || 'https://images.unsplash.com/photo-1591047139829-d91aecb6caea?w=200&h=200&fit=crop&auto=format',
         productTitle: activeTargetProduct?.name || 'ThreadSwap Item',
         productPrice: activeTargetProduct?.price || 1500,
@@ -2882,15 +2922,18 @@ function InboxPage({ activeTargetSeller, activeTargetProduct, onViewSellerProfil
     };
   });
 
-  const newThreadStableId = (cleanSellerName && activeTargetProduct && cleanSellerName.toLowerCase() !== currentHandle && !threads.find(t => t.name.toLowerCase() === cleanSellerName.toLowerCase()))
-    ? computeStableId(cleanSellerName)
+  const isTargetSelf = (targetSellerEmail && currentEmail && targetSellerEmail === currentEmail) ||
+                       (!targetSellerEmail && cleanSellerName && cleanSellerName.toLowerCase() === currentHandle);
+
+  const newThreadStableId = ((targetSellerEmail || cleanSellerName) && activeTargetProduct && !isTargetSelf && !threads.find(isThreadMatch))
+    ? computeStableId(targetSellerEmail || cleanSellerName)
     : null;
 
   const resolvedActiveThread = newThreadStableId
     ? { ...activeThread, id: newThreadStableId }
     : activeThread;
 
-  const [messagesByThread, setMessagesByThread] = useState<Record<number, { id: number; me: boolean; senderName?: string; text: string; time: string }[]>>(() => {
+  const [messagesByThread, setMessagesByThread] = useState<Record<number | string, { id: number; me: boolean; senderName?: string; text: string; time: string }[]>>(() => {
     try {
       const cached = localStorage.getItem(`localChatCache_${currentHandle}`) || localStorage.getItem('localChatCache');
       if (cached) {
@@ -2907,26 +2950,31 @@ function InboxPage({ activeTargetSeller, activeTargetProduct, onViewSellerProfil
   // Mark active thread as read when selected or open
   useEffect(() => {
     if (!resolvedActiveThread || !resolvedActiveThread.name || resolvedActiveThread.id === 0) return;
-    const partnerClean = getCleanUserHandle(resolvedActiveThread.name).toLowerCase();
-    if (!partnerClean) return;
+    const partnerKey = (resolvedActiveThread.partnerEmail || getCleanUserHandle(resolvedActiveThread.name)).toLowerCase();
+    if (!partnerKey) return;
 
     try {
       const storedReadTimestamps = localStorage.getItem(`readLastMsgTimestamp_${currentHandle}`);
       const readTimestamps: Record<string, number> = storedReadTimestamps ? JSON.parse(storedReadTimestamps) : {};
-      readTimestamps[partnerClean] = Date.now();
+      readTimestamps[partnerKey] = Date.now();
       localStorage.setItem(`readLastMsgTimestamp_${currentHandle}`, JSON.stringify(readTimestamps));
     } catch {}
 
-    setThreads(prev => prev.map(t => 
-      (t.id === resolvedActiveThread.id || getCleanUserHandle(t.name).toLowerCase() === partnerClean)
-        ? { ...t, unread: 0 }
-        : t
-    ));
-  }, [resolvedActiveThread.name, currentHandle]);
+    setThreads(prev => prev.map(t => {
+      const match = (t.id === resolvedActiveThread.id) || 
+                    (resolvedActiveThread.partnerEmail && t.partnerEmail && resolvedActiveThread.partnerEmail.toLowerCase() === t.partnerEmail.toLowerCase()) ||
+                    (!resolvedActiveThread.partnerEmail && getCleanUserHandle(t.name).toLowerCase() === partnerKey);
+      return match ? { ...t, unread: 0 } : t;
+    }));
+  }, [resolvedActiveThread.name, resolvedActiveThread.partnerEmail, resolvedActiveThread.id, currentHandle]);
 
-  // Ref to track active thread name without triggering effect re-runs
-  const activeThreadNameRef = useRef('');
-  activeThreadNameRef.current = resolvedActiveThread.name;
+  // Ref to track active thread identity without triggering effect re-runs
+  const activeThreadRef = useRef({ name: '', partnerEmail: '' as string | undefined, id: 0 });
+  activeThreadRef.current = { 
+    name: resolvedActiveThread.name, 
+    partnerEmail: resolvedActiveThread.partnerEmail, 
+    id: resolvedActiveThread.id 
+  };
 
   // Fetch user's persistent chat threads from MongoDB Atlas on load & poll
   useEffect(() => {
@@ -2940,16 +2988,16 @@ function InboxPage({ activeTargetSeller, activeTargetProduct, onViewSellerProfil
       const delTimes: Record<string, number> = storedDelTimes ? JSON.parse(storedDelTimes) : {};
 
       const msgs = await fetchUserChatThreadsBackend(authUser.name || '', authUser.email || '');
-      console.log('[Chat] threads fetch:', msgs?.length, 'msgs for handle:', currentHandle);
       if (!active || !msgs || !Array.isArray(msgs)) return;
 
       const latestMsgsByPartner = new Map<string, {
         threadId: number;
-        partnerHandle: string;
+        partnerName: string;
+        partnerEmail?: string;
         lastMsgText: string;
         lastMsgTimeStr: string;
         lastMsgSentAt: number;
-        lastSenderHandle: string;
+        lastSenderIdentifier: string;
         prodTitle: string;
       }>();
 
@@ -2960,36 +3008,72 @@ function InboxPage({ activeTargetSeller, activeTargetProduct, onViewSellerProfil
         const parts = rawPart.split('<->');
         if (parts.length < 2) continue;
 
-        const p1 = getCleanUserHandle(parts[0]);
-        const p2 = getCleanUserHandle(parts[1]);
+        const p1Raw = parts[0].trim();
+        const p2Raw = parts[1].trim();
+        const isEmailThread = p1Raw.includes('@') || p2Raw.includes('@');
 
-        const p1Clean = p1.toLowerCase();
-        const p2Clean = p2.toLowerCase();
+        let isP1Me = false;
+        let isP2Me = false;
+        let partnerEmail: string | undefined = undefined;
+        let partnerIdentifier = '';
 
-        // Privacy Guard: current user must be one of the thread participants (substring match)
-        const isP1Me = p1Clean === currentHandle || p1Clean.includes(currentHandle) || currentHandle.includes(p1Clean);
-        const isP2Me = p2Clean === currentHandle || p2Clean.includes(currentHandle) || currentHandle.includes(p2Clean);
-        if (!isP1Me && !isP2Me) continue;
+        if (isEmailThread) {
+          if (!currentEmail) continue;
+          isP1Me = p1Raw.toLowerCase() === currentEmail;
+          isP2Me = p2Raw.toLowerCase() === currentEmail;
+          if (!isP1Me && !isP2Me) continue;
 
-        const partnerHandle = !isP1Me ? p1 : p2;
-        if (partnerHandle.toLowerCase() === currentHandle) continue;
+          partnerEmail = (isP1Me ? p2Raw : p1Raw).toLowerCase();
+          partnerIdentifier = partnerEmail;
+        } else {
+          const p1Clean = getCleanUserHandle(p1Raw).toLowerCase();
+          const p2Clean = getCleanUserHandle(p2Raw).toLowerCase();
+          isP1Me = p1Clean === currentHandle || p1Clean.includes(currentHandle) || currentHandle.includes(p1Clean);
+          isP2Me = p2Clean === currentHandle || p2Clean.includes(currentHandle) || currentHandle.includes(p2Clean);
+          if (!isP1Me && !isP2Me) continue;
 
-        const key = partnerHandle.toLowerCase();
+          const partnerHandle = !isP1Me ? p1Raw : p2Raw;
+          if (getCleanUserHandle(partnerHandle).toLowerCase() === currentHandle) continue;
+          partnerIdentifier = getCleanUserHandle(partnerHandle).toLowerCase();
+        }
+
         const msgTime = m.sentAt ? new Date(m.sentAt).getTime() : Date.now();
-        const delTime = delTimes[key] || 0;
+        const delTime = delTimes[partnerIdentifier] || 0;
         if (msgTime <= delTime) continue;
 
+        const senderEmail = (m.senderEmail || '').trim().toLowerCase();
         const senderHandle = getCleanUserHandle(m.senderName).toLowerCase();
+        const lastSenderIdentifier = senderEmail || senderHandle;
 
-        const existing = latestMsgsByPartner.get(key);
+        let partnerName = '';
+        if (partnerEmail) {
+          if (m.senderEmail && m.senderEmail.toLowerCase() === partnerEmail && m.senderName) {
+            partnerName = getCleanUserHandle(m.senderName);
+          } else if (targetSellerEmail && partnerEmail === targetSellerEmail && cleanSellerName) {
+            partnerName = cleanSellerName;
+          } else if (productsList && productsList.length > 0) {
+            const foundProd = productsList.find(p => p.sellerEmail && p.sellerEmail.toLowerCase() === partnerEmail);
+            if (foundProd?.seller) {
+              partnerName = getCleanUserHandle(foundProd.seller);
+            }
+          }
+          if (!partnerName) {
+            partnerName = getCleanUserHandle(partnerEmail);
+          }
+        } else {
+          partnerName = getCleanUserHandle(partnerIdentifier);
+        }
+
+        const existing = latestMsgsByPartner.get(partnerIdentifier);
         if (!existing || msgTime > existing.lastMsgSentAt) {
-          latestMsgsByPartner.set(key, {
-            threadId: computeStableId(partnerHandle),
-            partnerHandle,
+          latestMsgsByPartner.set(partnerIdentifier, {
+            threadId: computeStableId(partnerIdentifier),
+            partnerName: partnerName || existing?.partnerName || 'User',
+            partnerEmail,
             lastMsgText: m.text,
             lastMsgTimeStr: m.sentAt ? new Date(m.sentAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Just now',
             lastMsgSentAt: msgTime,
-            lastSenderHandle: senderHandle,
+            lastSenderIdentifier,
             prodTitle
           });
         }
@@ -2997,16 +3081,19 @@ function InboxPage({ activeTargetSeller, activeTargetProduct, onViewSellerProfil
 
       const fetchedThreads: ChatThread[] = [];
       for (const [key, data] of latestMsgsByPartner.entries()) {
-        const isFromPartner = data.lastSenderHandle !== currentHandle;
+        const isFromPartner = data.lastSenderIdentifier !== (currentEmail || currentHandle);
         const lastReadTime = readTimestamps[key] || 0;
-        const isActive = activeThreadNameRef.current && getCleanUserHandle(activeThreadNameRef.current).toLowerCase() === key;
-        
+        const activeItem = activeThreadRef.current;
+        const isActive = (activeItem.partnerEmail && data.partnerEmail && activeItem.partnerEmail.toLowerCase() === data.partnerEmail.toLowerCase()) ||
+                         (!data.partnerEmail && activeItem.name && getCleanUserHandle(activeItem.name).toLowerCase() === key);
+
         const isUnread = !isActive && isFromPartner && (data.lastMsgSentAt > lastReadTime + 1000);
 
         fetchedThreads.push({
           id: data.threadId,
-          name: data.partnerHandle,
-          avatar: data.partnerHandle.slice(0, 2).toUpperCase(),
+          name: data.partnerName,
+          partnerEmail: data.partnerEmail,
+          avatar: data.partnerName.slice(0, 2).toUpperCase(),
           productThumb: 'https://images.unsplash.com/photo-1591047139829-d91aecb6caea?w=200&h=200&fit=crop&auto=format',
           productTitle: data.prodTitle,
           productPrice: 1500,
@@ -3024,16 +3111,16 @@ function InboxPage({ activeTargetSeller, activeTargetProduct, onViewSellerProfil
         return (b.lastMsgSentAt || 0) - (a.lastMsgSentAt || 0);
       });
 
-      console.log('[Chat] built threads:', fetchedThreads.length, fetchedThreads.map((t: any) => t.name));
       try { localStorage.setItem(`localUserThreads_${currentHandle}`, JSON.stringify(fetchedThreads)); } catch {}
       setThreads(fetchedThreads);
 
-      // Auto-select the top thread only if nothing is currently selected
-      // Use setTimeout to defer state update so it doesn't cancel this effect run
       if (fetchedThreads.length > 0) {
-        const activeNow = activeThreadNameRef.current;
-        const hasValidActive = activeNow && fetchedThreads.some(t => t.name.toLowerCase() === activeNow.toLowerCase());
-        if (!hasValidActive && !cleanSellerName) {
+        const activeItem = activeThreadRef.current;
+        const hasValidActive = activeItem.name && fetchedThreads.some(t => 
+          (activeItem.partnerEmail && t.partnerEmail && activeItem.partnerEmail.toLowerCase() === t.partnerEmail.toLowerCase()) ||
+          (!activeItem.partnerEmail && t.name.toLowerCase() === activeItem.name.toLowerCase())
+        );
+        if (!hasValidActive && !cleanSellerName && !targetSellerEmail) {
           setTimeout(() => { if (active) setActiveThread(fetchedThreads[0]); }, 0);
         }
       }
@@ -3042,36 +3129,45 @@ function InboxPage({ activeTargetSeller, activeTargetProduct, onViewSellerProfil
     loadUserThreads();
     const interval = setInterval(loadUserThreads, 3000);
     return () => { active = false; clearInterval(interval); };
-  }, [authUser, currentHandle]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [authUser, currentHandle, currentEmail, targetSellerEmail, cleanSellerName, productsList]);
 
-  const handleDeleteThread = (threadId: number, partnerName: string) => {
+  const handleDeleteThread = (threadId: number, partnerName: string, partnerEmail?: string) => {
     if (!window.confirm(`Delete chat conversation with "${partnerName}"?`)) return;
 
-    const cleanPartner = getCleanUserHandle(partnerName).toLowerCase();
+    const partnerKey = (partnerEmail || getCleanUserHandle(partnerName)).toLowerCase();
 
     // Permanently remove from backend database
-    deleteThreadBackend(currentHandle, cleanPartner);
+    if (authUser?.email && partnerEmail) {
+      deleteThreadBackend(authUser.email, partnerEmail);
+    }
+    deleteThreadBackend(currentHandle, partnerKey);
     if (authUser?.name) {
-      deleteThreadBackend(authUser.name, cleanPartner);
+      deleteThreadBackend(authUser.name, partnerKey);
     }
     if (authUser?.email) {
-      deleteThreadBackend(authUser.email, cleanPartner);
+      deleteThreadBackend(authUser.email, partnerKey);
     }
 
     try {
       const stored = localStorage.getItem(`deletedThreadAt_${currentHandle}`);
       const map: Record<string, number> = stored ? JSON.parse(stored) : {};
-      map[cleanPartner] = Date.now();
+      map[partnerKey] = Date.now();
       localStorage.setItem(`deletedThreadAt_${currentHandle}`, JSON.stringify(map));
     } catch {}
 
-    const updatedThreads = threads.filter(t => t.id !== threadId && getCleanUserHandle(t.name).toLowerCase() !== cleanPartner);
+    const updatedThreads = threads.filter(t => {
+      if (t.id === threadId) return false;
+      if (partnerEmail && t.partnerEmail && t.partnerEmail.toLowerCase() === partnerEmail.toLowerCase()) return false;
+      if (!partnerEmail && getCleanUserHandle(t.name).toLowerCase() === partnerKey) return false;
+      return true;
+    });
     setThreads(updatedThreads);
 
     setMessagesByThread(prev => {
       const next = { ...prev };
       delete next[threadId];
-      delete next[computeStableId(cleanPartner)];
+      delete next[computeStableId(partnerKey)];
+      delete next[partnerKey];
       try { localStorage.setItem(`localChatCache_${currentHandle}`, JSON.stringify(next)); } catch {}
       return next;
     });
@@ -3080,7 +3176,11 @@ function InboxPage({ activeTargetSeller, activeTargetProduct, onViewSellerProfil
       localStorage.setItem(`localUserThreads_${currentHandle}`, JSON.stringify(updatedThreads));
     } catch {}
 
-    if (activeThread.id === threadId || getCleanUserHandle(activeThread.name).toLowerCase() === cleanPartner) {
+    const isActive = (activeThread.id === threadId) ||
+                     (partnerEmail && activeThread.partnerEmail && activeThread.partnerEmail.toLowerCase() === partnerEmail.toLowerCase()) ||
+                     (!partnerEmail && getCleanUserHandle(activeThread.name).toLowerCase() === partnerKey);
+
+    if (isActive) {
       if (updatedThreads.length > 0) {
         setActiveThread(updatedThreads[0]);
       } else {
@@ -3133,17 +3233,17 @@ function InboxPage({ activeTargetSeller, activeTargetProduct, onViewSellerProfil
     let active = true;
     if (!resolvedActiveThread || !resolvedActiveThread.name || resolvedActiveThread.id === 0) return;
 
-    const partnerClean = getCleanUserHandle(resolvedActiveThread.name).toLowerCase();
+    const partnerKey = (resolvedActiveThread.partnerEmail || getCleanUserHandle(resolvedActiveThread.name)).toLowerCase();
     const deletedTimestamps = getDeletedTimestamps();
-    const delTime = deletedTimestamps[partnerClean] || 0;
+    const delTime = deletedTimestamps[partnerKey] || 0;
 
-    const userA = authUser?.name || authUser?.email || 'Guest';
-    const userB = resolvedActiveThread.name || 'Seller';
+    const userA = authUser?.email || authUser?.name || 'Guest';
+    const userB = resolvedActiveThread.partnerEmail || resolvedActiveThread.name || 'Seller';
     const threadKey = buildThreadKey(userA, userB);
-    const targetId = computeStableId(resolvedActiveThread.name);
+    const targetId = resolvedActiveThread.id || computeStableId(partnerKey);
 
     async function syncBackendMessages() {
-      const msgs = await fetchChatMessagesBackend(threadKey, getCleanUserHandle(userA), getCleanUserHandle(userB));
+      const msgs = await fetchChatMessagesBackend(threadKey, userA, userB);
       if (!active) return;
       if (msgs && Array.isArray(msgs)) {
         const validMsgs = msgs.filter((m: any) => {
@@ -3151,10 +3251,12 @@ function InboxPage({ activeTargetSeller, activeTargetProduct, onViewSellerProfil
           return msgTime > delTime;
         });
 
+        const myEmail = authUser?.email?.trim().toLowerCase();
         const myHandle = getCleanUserHandle(authUser?.name || authUser?.email).toLowerCase();
         const formatted = validMsgs.map((m: any, idx: number) => {
-          const senderHandle = getCleanUserHandle(m.senderName).toLowerCase();
-          const isMe = senderHandle === myHandle;
+          const sEmail = (m.senderEmail || '').trim().toLowerCase();
+          const sHandle = getCleanUserHandle(m.senderName).toLowerCase();
+          const isMe = (myEmail && sEmail && myEmail === sEmail) || (sHandle === myHandle);
           return {
             id: m.id || idx,
             me: isMe,
@@ -3168,7 +3270,7 @@ function InboxPage({ activeTargetSeller, activeTargetProduct, onViewSellerProfil
           const next = {
             ...prev,
             [targetId]: formatted,
-            [partnerClean]: formatted,
+            [partnerKey]: formatted,
             [resolvedActiveThread.id]: formatted
           };
           try { localStorage.setItem(`localChatCache_${currentHandle}`, JSON.stringify(next)); } catch {}
@@ -3179,26 +3281,30 @@ function InboxPage({ activeTargetSeller, activeTargetProduct, onViewSellerProfil
     syncBackendMessages();
     const interval = setInterval(syncBackendMessages, 3000);
     return () => { active = false; clearInterval(interval); };
-  }, [resolvedActiveThread.name, resolvedActiveThread.id, authUser, currentHandle]);
+  }, [resolvedActiveThread.name, resolvedActiveThread.partnerEmail, resolvedActiveThread.id, authUser, currentHandle]);
 
-  const currentTargetId = computeStableId(resolvedActiveThread.name);
-  const currentHandleKey = getCleanUserHandle(resolvedActiveThread.name).toLowerCase();
-  const activeMessages = messagesByThread[currentTargetId] || messagesByThread[currentHandleKey] || messagesByThread[resolvedActiveThread.id] || [];
+  const currentPartnerKey = (resolvedActiveThread.partnerEmail || getCleanUserHandle(resolvedActiveThread.name)).toLowerCase();
+  const currentTargetId = resolvedActiveThread.id || computeStableId(currentPartnerKey);
+  const activeMessages = messagesByThread[currentTargetId] || messagesByThread[currentPartnerKey] || messagesByThread[resolvedActiveThread.id] || [];
 
   const send = async () => {
     if (!input.trim()) return;
     const rawTargetName = resolvedActiveThread.name || cleanSellerName;
-    const userB = getCleanUserHandle(rawTargetName);
-    if (!userB || userB === 'Guest' || userB === 'Seller' || userB.toLowerCase() === currentHandle) {
+    const partnerEmail = resolvedActiveThread.partnerEmail || targetSellerEmail;
+    const partnerKey = (partnerEmail || getCleanUserHandle(rawTargetName)).toLowerCase();
+
+    if ((!partnerEmail && !rawTargetName) || partnerKey === currentHandle || (partnerEmail && currentEmail && partnerEmail === currentEmail)) {
       alert("Please select a valid user to send a message.");
       return;
     }
 
     const msgText = input.trim();
     setInput("");
-    const currentUserName = authUser?.name || authUser?.email || 'User';
-    const threadKey = buildThreadKey(currentUserName, userB);
-    const senderDisplayName = getCleanUserHandle(currentUserName);
+    const userA = authUser?.email || authUser?.name || 'User';
+    const userB = partnerEmail || rawTargetName || 'Seller';
+    const threadKey = buildThreadKey(userA, userB);
+    const senderDisplayName = getCleanUserHandle(authUser?.name || authUser?.email || 'User');
+    const targetId = resolvedActiveThread.id || computeStableId(partnerKey);
 
     const newMsg = {
       id: Date.now(),
@@ -3208,26 +3314,23 @@ function InboxPage({ activeTargetSeller, activeTargetProduct, onViewSellerProfil
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
 
-    const targetClean = getCleanUserHandle(userB).toLowerCase();
-    const targetId = computeStableId(userB);
-
     // Un-delete partner if previously hidden
     try {
       const stored = localStorage.getItem(`deletedThreadAt_${currentHandle}`);
       if (stored) {
         const map: Record<string, number> = JSON.parse(stored);
-        delete map[targetClean];
+        delete map[partnerKey];
         localStorage.setItem(`deletedThreadAt_${currentHandle}`, JSON.stringify(map));
       }
     } catch {}
 
     setMessagesByThread(prev => {
-      const existing = prev[targetId] || prev[targetClean] || prev[resolvedActiveThread.id] || [];
+      const existing = prev[targetId] || prev[partnerKey] || prev[resolvedActiveThread.id] || [];
       const updatedMsgs = [...existing, newMsg];
       const next = {
         ...prev,
         [targetId]: updatedMsgs,
-        [targetClean]: updatedMsgs,
+        [partnerKey]: updatedMsgs,
         [resolvedActiveThread.id]: updatedMsgs
       };
       try { localStorage.setItem(`localChatCache_${currentHandle}`, JSON.stringify(next)); } catch {}
@@ -3235,15 +3338,21 @@ function InboxPage({ activeTargetSeller, activeTargetProduct, onViewSellerProfil
     });
 
     setThreads(prev => {
-      const idx = prev.findIndex(t => t.id === activeThread.id || t.id === targetId || getCleanUserHandle(t.name).toLowerCase() === targetClean);
+      const idx = prev.findIndex(t => 
+        (t.id === activeThread.id) || 
+        (t.id === targetId) || 
+        (partnerEmail && t.partnerEmail && t.partnerEmail.toLowerCase() === partnerEmail.toLowerCase()) ||
+        (!partnerEmail && getCleanUserHandle(t.name).toLowerCase() === partnerKey)
+      );
       let updated: ChatThread[];
       if (idx !== -1) {
         updated = prev.map((t, i) => i === idx ? { ...t, lastMsg: msgText, time: 'Just now', unread: 0 } : t);
       } else {
         const newThread: ChatThread = {
           id: targetId,
-          name: getCleanUserHandle(userB),
-          avatar: getCleanUserHandle(userB).slice(0, 2).toUpperCase(),
+          name: getCleanUserHandle(rawTargetName || partnerEmail),
+          partnerEmail,
+          avatar: getCleanUserHandle(rawTargetName || partnerEmail).slice(0, 2).toUpperCase(),
           productThumb: resolvedActiveThread.productThumb || 'https://images.unsplash.com/photo-1591047139829-d91aecb6caea?w=200&h=200&fit=crop&auto=format',
           productTitle: resolvedActiveThread.productTitle || 'ThreadSwap Exchange',
           productPrice: resolvedActiveThread.productPrice || 1500,
@@ -3257,7 +3366,7 @@ function InboxPage({ activeTargetSeller, activeTargetProduct, onViewSellerProfil
       return updated;
     });
 
-    await sendChatMessageBackend(threadKey, senderDisplayName, msgText);
+    await sendChatMessageBackend(threadKey, senderDisplayName, msgText, authUser?.email);
   };
 
   return (
@@ -3272,13 +3381,20 @@ function InboxPage({ activeTargetSeller, activeTargetProduct, onViewSellerProfil
             </div>
             <div className="flex-1 overflow-y-auto">
               {threads.map(t => {
-                const isSelected = activeThread.id === t.id || (activeThread.name && t.name && getCleanUserHandle(activeThread.name).toLowerCase() === getCleanUserHandle(t.name).toLowerCase());
+                const isSelected = activeThread.id === t.id || 
+                  (resolvedActiveThread.partnerEmail && t.partnerEmail && resolvedActiveThread.partnerEmail.toLowerCase() === t.partnerEmail.toLowerCase()) ||
+                  (!resolvedActiveThread.partnerEmail && activeThread.name && t.name && getCleanUserHandle(activeThread.name).toLowerCase() === getCleanUserHandle(t.name).toLowerCase());
                 return (
                   <div key={t.id} className="relative group">
                     <button 
                       onClick={() => {
                         setActiveThread(t);
-                        setThreads(prev => prev.map(item => (item.id === t.id || getCleanUserHandle(item.name).toLowerCase() === getCleanUserHandle(t.name).toLowerCase()) ? { ...item, unread: 0 } : item));
+                        setThreads(prev => prev.map(item => {
+                          const match = (item.id === t.id) ||
+                            (t.partnerEmail && item.partnerEmail && item.partnerEmail.toLowerCase() === t.partnerEmail.toLowerCase()) ||
+                            (!t.partnerEmail && getCleanUserHandle(item.name).toLowerCase() === getCleanUserHandle(t.name).toLowerCase());
+                          return match ? { ...item, unread: 0 } : item;
+                        }));
                       }} 
                       className={`w-full flex items-center gap-3 px-4 py-3.5 border-b border-border text-left transition-colors ${isSelected ? "bg-primary/10 border-l-4 border-l-primary" : "hover:bg-muted"}`}
                     >
@@ -3301,7 +3417,7 @@ function InboxPage({ activeTargetSeller, activeTargetProduct, onViewSellerProfil
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleDeleteThread(t.id, t.name);
+                        handleDeleteThread(t.id, t.name, t.partnerEmail);
                       }}
                       className="absolute right-3 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-600 border border-red-200 dark:border-red-900/40 transition-all"
                       title="Delete Chat"
@@ -3339,13 +3455,13 @@ function InboxPage({ activeTargetSeller, activeTargetProduct, onViewSellerProfil
 
                   <div className="flex items-center gap-2">
                     <button 
-                      onClick={() => onViewSellerProfile(resolvedActiveThread.name)}
+                      onClick={() => onViewSellerProfile(resolvedActiveThread.name, resolvedActiveThread.partnerEmail)}
                       className="px-3.5 py-1.5 rounded-xl bg-muted border border-border text-xs font-bold text-primary hover:bg-primary/10 transition-colors flex items-center gap-1"
                     >
                       <User size={13} /> View Seller Profile
                     </button>
                     <button 
-                      onClick={() => handleDeleteThread(resolvedActiveThread.id, resolvedActiveThread.name)}
+                      onClick={() => handleDeleteThread(resolvedActiveThread.id, resolvedActiveThread.name, resolvedActiveThread.partnerEmail)}
                       className="px-3 py-1.5 rounded-xl bg-red-500/10 border border-red-200 dark:border-red-900/40 text-xs font-bold text-red-600 hover:bg-red-500/20 transition-colors flex items-center gap-1"
                       title="Delete Chat Conversation"
                     >
@@ -3697,9 +3813,13 @@ function ProfilePage({
     const itemEmail = (p.sellerEmail || '').toLowerCase().trim();
     const itemSeller = (p.seller || '').toLowerCase().trim();
 
-    if (itemEmail && userEmail && itemEmail === userEmail) return true;
+    // 1. If the item has a seller email, strictly match against user's email
+    if (itemEmail) {
+      return Boolean(userEmail && itemEmail === userEmail);
+    }
+
+    // 2. Fallback only for legacy mock items that don't have seller email registered
     if (itemSeller && userName && (itemSeller === userName || itemSeller === 'you')) return true;
-    if (userName && itemSeller && (userName.includes(itemSeller) || itemSeller.includes(userName))) return true;
     return false;
   });
   const displayListings = myListings;
@@ -4670,6 +4790,7 @@ export default function App() {
     }
 
     const currentHandle = getCleanUserHandle(authUser.name || authUser.email).toLowerCase();
+    const currentEmail = authUser.email?.trim().toLowerCase() || '';
     let active = true;
 
     async function pollGlobalUnread() {
@@ -4682,7 +4803,7 @@ export default function App() {
       const storedReadTimestamps = localStorage.getItem(`readLastMsgTimestamp_${currentHandle}`);
       const readTimestamps: Record<string, number> = storedReadTimestamps ? JSON.parse(storedReadTimestamps) : {};
 
-      const latestMsgsByPartner = new Map<string, { lastMsgSentAt: number; senderHandle: string; threadKey: string }>();
+      const latestMsgsByPartner = new Map<string, { lastMsgSentAt: number; senderIdentifier: string; threadKey: string }>();
 
       for (const m of msgs) {
         if (!m.threadKey || !m.threadKey.includes('<->')) continue;
@@ -4690,32 +4811,46 @@ export default function App() {
         const parts = rawPart.split('<->');
         if (parts.length < 2) continue;
 
-        const p1 = getCleanUserHandle(parts[0]);
-        const p2 = getCleanUserHandle(parts[1]);
+        const p1Raw = parts[0].trim();
+        const p2Raw = parts[1].trim();
+        const isEmailThread = p1Raw.includes('@') || p2Raw.includes('@');
 
-        const p1Clean = p1.toLowerCase();
-        const p2Clean = p2.toLowerCase();
+        let isP1Me = false;
+        let isP2Me = false;
+        let partnerKey = '';
 
-        // Privacy Guard: current user must be one of the thread participants (substring match)
-        const isP1Me = p1Clean === currentHandle || p1Clean.includes(currentHandle) || currentHandle.includes(p1Clean);
-        const isP2Me = p2Clean === currentHandle || p2Clean.includes(currentHandle) || currentHandle.includes(p2Clean);
-        if (!isP1Me && !isP2Me) continue;
+        if (isEmailThread) {
+          if (!currentEmail) continue;
+          isP1Me = p1Raw.toLowerCase() === currentEmail;
+          isP2Me = p2Raw.toLowerCase() === currentEmail;
+          if (!isP1Me && !isP2Me) continue;
 
-        const partnerHandle = !isP1Me ? p1 : p2;
-        if (partnerHandle.toLowerCase() === currentHandle) continue;
+          partnerKey = (isP1Me ? p2Raw : p1Raw).toLowerCase();
+        } else {
+          const p1Clean = getCleanUserHandle(p1Raw).toLowerCase();
+          const p2Clean = getCleanUserHandle(p2Raw).toLowerCase();
+          isP1Me = p1Clean === currentHandle || p1Clean.includes(currentHandle) || currentHandle.includes(p1Clean);
+          isP2Me = p2Clean === currentHandle || p2Clean.includes(currentHandle) || currentHandle.includes(p2Clean);
+          if (!isP1Me && !isP2Me) continue;
 
-        const key = partnerHandle.toLowerCase();
+          const partnerHandle = !isP1Me ? p1Raw : p2Raw;
+          if (getCleanUserHandle(partnerHandle).toLowerCase() === currentHandle) continue;
+          partnerKey = getCleanUserHandle(partnerHandle).toLowerCase();
+        }
+
         const msgTime = m.sentAt ? new Date(m.sentAt).getTime() : Date.now();
-        const delTime = delTimes[key] || 0;
+        const delTime = delTimes[partnerKey] || 0;
         if (msgTime <= delTime) continue;
 
+        const senderEmail = (m.senderEmail || '').trim().toLowerCase();
         const senderHandle = getCleanUserHandle(m.senderName).toLowerCase();
+        const senderIdentifier = senderEmail || senderHandle;
 
-        const existing = latestMsgsByPartner.get(key);
+        const existing = latestMsgsByPartner.get(partnerKey);
         if (!existing || msgTime > existing.lastMsgSentAt) {
-          latestMsgsByPartner.set(key, {
+          latestMsgsByPartner.set(partnerKey, {
             lastMsgSentAt: msgTime,
-            senderHandle,
+            senderIdentifier,
             threadKey: m.threadKey
           });
         }
@@ -4723,7 +4858,7 @@ export default function App() {
 
       let count = 0;
       for (const [key, data] of latestMsgsByPartner.entries()) {
-        const isFromPartner = data.senderHandle !== currentHandle;
+        const isFromPartner = data.senderIdentifier !== (currentEmail || currentHandle);
         const lastReadTime = readTimestamps[key] || 0;
         if (isFromPartner && data.lastMsgSentAt > lastReadTime + 1000) {
           count += 1;
@@ -4740,8 +4875,9 @@ export default function App() {
 
   // Selected overlays state
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-  const [selectedSellerName, setSelectedSellerName] = useState<string | null>(null);
+  const [selectedSeller, setSelectedSeller] = useState<{ name: string; email?: string } | null>(null);
   const [chatTargetSeller, setChatTargetSeller] = useState<string | null>(null);
+  const [chatTargetSellerEmail, setChatTargetSellerEmail] = useState<string | null>(null);
   const [chatTargetProduct, setChatTargetProduct] = useState<Product | null>(null);
 
   // Fetch backend database items on startup and merge local persistent listings
@@ -4811,6 +4947,7 @@ export default function App() {
     }
     if (p === "inbox" || p === "discover" || p === "home" || p === "profile" || p === "map") {
       setChatTargetSeller(null);
+      setChatTargetSellerEmail(null);
       setChatTargetProduct(null);
     }
     if (p === "map" || mode === "map") {
@@ -4828,8 +4965,8 @@ export default function App() {
       setSelectedProduct(null);
       return;
     }
-    if (selectedSellerName) {
-      setSelectedSellerName(null);
+    if (selectedSeller) {
+      setSelectedSeller(null);
       return;
     }
     if (pageHistory.length > 0) {
@@ -4841,11 +4978,12 @@ export default function App() {
     }
   };
 
-  const canGoBack = page !== "home" || pageHistory.length > 0 || Boolean(selectedProduct) || Boolean(selectedSellerName);
+  const canGoBack = page !== "home" || pageHistory.length > 0 || Boolean(selectedProduct) || Boolean(selectedSeller);
 
   const handleLogin = (user: { name: string; email: string }) => {
     const handle = getCleanUserHandle(user.name || user.email).toLowerCase();
     setChatTargetSeller(null);
+    setChatTargetSellerEmail(null);
     setChatTargetProduct(null);
     try {
       localStorage.removeItem(`deletedThreadAt_${handle}`);
@@ -4858,13 +4996,14 @@ export default function App() {
   const handleLogout = () => {
     setAuthUser(null);
     setChatTargetSeller(null);
+    setChatTargetSellerEmail(null);
     setChatTargetProduct(null);
     localStorage.removeItem('authUser');
     localStorage.removeItem('token');
     goNav("home");
   };
 
-  const handleStartChat = (seller: string, prod: Product) => {
+  const handleStartChat = (seller: string, prod: Product, sellerEmail?: string) => {
     if (!authUser) {
       alert("Please sign in to message sellers on ThreadSwap!");
       setPage("login");
@@ -4872,15 +5011,16 @@ export default function App() {
       return;
     }
     setSelectedProduct(null);
-    setSelectedSellerName(null);
+    setSelectedSeller(null);
     setChatTargetSeller(seller);
+    setChatTargetSellerEmail(sellerEmail || prod.sellerEmail || null);
     setChatTargetProduct(prod);
     setPage("inbox");
   };
 
-  const handleViewSellerProfile = (seller: string) => {
+  const handleViewSellerProfile = (seller: string, sellerEmail?: string) => {
     setSelectedProduct(null);
-    setSelectedSellerName(seller);
+    setSelectedSeller({ name: seller, email: sellerEmail });
   };
 
   const handleListingPublished = async (newItem: any) => {
@@ -4991,9 +5131,11 @@ export default function App() {
           <InboxPage
             key={authUser?.email || authUser?.name || 'inbox'}
             activeTargetSeller={chatTargetSeller || undefined}
+            activeTargetSellerEmail={chatTargetSellerEmail || undefined}
             activeTargetProduct={chatTargetProduct || undefined}
             onViewSellerProfile={handleViewSellerProfile}
             authUser={authUser}
+            productsList={productsList}
           />
         );
 
@@ -5060,12 +5202,14 @@ export default function App() {
       )}
 
       {/* Seller Profile Modal */}
-      {selectedSellerName && (
+      {selectedSeller && (
         <SellerProfileModal
-          sellerName={selectedSellerName}
+          sellerName={selectedSeller.name}
+          sellerEmail={selectedSeller.email}
           products={productsList}
-          onClose={() => setSelectedSellerName(null)}
+          onClose={() => setSelectedSeller(null)}
           onStartChat={handleStartChat}
+          authUser={authUser}
         />
       )}
     </div>

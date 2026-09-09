@@ -34,6 +34,45 @@ public class SimpleChatController {
         return s;
     }
 
+    private String normalizeHandle(String str) {
+        if (str == null || str.isBlank()) return "";
+        String s = str.trim().toLowerCase();
+        if (s.contains("@")) {
+            return s; // Keep full email intact
+        }
+        return s.split(" ")[0].replaceAll("^@", "");
+    }
+
+    private boolean isParticipantMatch(String p1, String p2, String userEmail, String userName) {
+        String uEmail = (userEmail != null) ? userEmail.trim().toLowerCase() : "";
+        String uName = (userName != null) ? getCleanHandle(userName) : "";
+
+        boolean isEmailThread = p1.contains("@") || p2.contains("@");
+
+        if (isEmailThread) {
+            // Strict email match for email-keyed threads
+            if (!uEmail.isEmpty()) {
+                return p1.equalsIgnoreCase(uEmail) || p2.equalsIgnoreCase(uEmail);
+            }
+            return false;
+        }
+
+        // Legacy name-based thread fallback
+        String p1Clean = getCleanHandle(p1);
+        String p2Clean = getCleanHandle(p2);
+
+        boolean emailHandleMatch = !uEmail.isEmpty() && (
+            p1Clean.equals(getCleanHandle(uEmail)) || p2Clean.equals(getCleanHandle(uEmail))
+        );
+        boolean nameMatch = !uName.isEmpty() && (
+            p1Clean.equals(uName) || p2Clean.equals(uName) ||
+            p1Clean.contains(uName) || uName.contains(p1Clean) ||
+            p2Clean.equals(uName) || uName.contains(p2Clean)
+        );
+
+        return emailHandleMatch || nameMatch;
+    }
+
     /**
      * GET /api/v1/chat-messages?threadKey=UserA<->UserB
      * Returns all messages for the user pair, consolidating older product-specific threads into one.
@@ -44,44 +83,56 @@ public class SimpleChatController {
             @RequestParam(required = false) String user1,
             @RequestParam(required = false) String user2) {
 
-        String u1Clean = getCleanHandle(user1);
-        String u2Clean = getCleanHandle(user2);
+        String u1Norm = normalizeHandle(user1);
+        String u2Norm = normalizeHandle(user2);
 
-        if ((u1Clean.isEmpty() || u2Clean.isEmpty()) && threadKey != null && threadKey.contains("<->")) {
+        if ((u1Norm.isEmpty() || u2Norm.isEmpty()) && threadKey != null && threadKey.contains("<->")) {
             String raw = threadKey.contains("::") ? threadKey.split("::")[0] : threadKey;
             String[] parts = raw.split("<->", 2);
             if (parts.length >= 2) {
-                if (u1Clean.isEmpty()) u1Clean = getCleanHandle(parts[0]);
-                if (u2Clean.isEmpty()) u2Clean = getCleanHandle(parts[1]);
+                if (u1Norm.isEmpty()) u1Norm = normalizeHandle(parts[0]);
+                if (u2Norm.isEmpty()) u2Norm = normalizeHandle(parts[1]);
             }
         }
 
-        if (u1Clean.isEmpty() || u2Clean.isEmpty()) {
+        if (u1Norm.isEmpty() || u2Norm.isEmpty()) {
             return ResponseEntity.ok(List.of());
         }
 
-        final String targetU1 = u1Clean;
-        final String targetU2 = u2Clean;
+        final String targetU1 = u1Norm;
+        final String targetU2 = u2Norm;
 
         List<ChatMessage> all = chatMessageRepository.findAll();
         List<ChatMessage> consolidated = all.stream()
                 .filter(m -> {
                     if (m.getThreadKey() == null) return false;
-                    String tk = m.getThreadKey().toLowerCase();
+                    String tk = m.getThreadKey().toLowerCase().trim();
                     String raw = tk.contains("::") ? tk.split("::")[0] : tk;
                     String[] parts = raw.split("<->", 2);
                     if (parts.length < 2) return false;
 
-                    String p1 = getCleanHandle(parts[0]);
-                    String p2 = getCleanHandle(parts[1]);
+                    String p1 = normalizeHandle(parts[0]);
+                    String p2 = normalizeHandle(parts[1]);
 
-                    // Universal participant check: p1 & p2 match targetU1 & targetU2 or vice-versa
-                    boolean direct = (p1.equals(targetU1) || p1.contains(targetU1) || targetU1.contains(p1)) &&
-                                     (p2.equals(targetU2) || p2.contains(targetU2) || targetU2.contains(p2));
-                    boolean reverse = (p1.equals(targetU2) || p1.contains(targetU2) || targetU2.contains(p1)) &&
-                                      (p2.equals(targetU1) || p2.contains(targetU1) || targetU1.contains(p2));
+                    boolean direct = p1.equalsIgnoreCase(targetU1) && p2.equalsIgnoreCase(targetU2);
+                    boolean reverse = p1.equalsIgnoreCase(targetU2) && p2.equalsIgnoreCase(targetU1);
 
-                    return direct || reverse;
+                    if (direct || reverse) return true;
+
+                    // If neither is email, allow legacy clean handle matching
+                    if (!targetU1.contains("@") && !targetU2.contains("@") && !p1.contains("@") && !p2.contains("@")) {
+                        String p1Clean = getCleanHandle(p1);
+                        String p2Clean = getCleanHandle(p2);
+                        String u1Clean = getCleanHandle(targetU1);
+                        String u2Clean = getCleanHandle(targetU2);
+                        boolean legDirect = (p1Clean.equals(u1Clean) || p1Clean.contains(u1Clean) || u1Clean.contains(p1Clean)) &&
+                                            (p2Clean.equals(u2Clean) || p2Clean.contains(u2Clean) || u2Clean.contains(p2Clean));
+                        boolean legReverse = (p1Clean.equals(u2Clean) || p1Clean.contains(u2Clean) || u2Clean.contains(p1Clean)) &&
+                                             (p2Clean.equals(u1Clean) || p2Clean.contains(u1Clean) || u1Clean.contains(p2Clean));
+                        return legDirect || legReverse;
+                    }
+
+                    return false;
                 })
                 .sorted(Comparator.comparing(ChatMessage::getSentAt))
                 .collect(Collectors.toList());
@@ -98,10 +149,7 @@ public class SimpleChatController {
             @RequestParam(required = false) String userName,
             @RequestParam(required = false) String userEmail) {
 
-        String h1 = getCleanHandle(userEmail);
-        String h2 = getCleanHandle(userName);
-
-        if (h1.isEmpty() && h2.isEmpty()) {
+        if ((userEmail == null || userEmail.isBlank()) && (userName == null || userName.isBlank())) {
             return ResponseEntity.ok(List.of());
         }
 
@@ -109,18 +157,15 @@ public class SimpleChatController {
         List<ChatMessage> userMsgs = all.stream()
                 .filter(m -> {
                     if (m.getThreadKey() == null) return false;
-                    String tk = m.getThreadKey().toLowerCase();
+                    String tk = m.getThreadKey().toLowerCase().trim();
                     String raw = tk.contains("::") ? tk.split("::")[0] : tk;
                     String[] parts = raw.split("<->", 2);
                     if (parts.length < 2) return false;
 
-                    String p1 = getCleanHandle(parts[0]);
-                    String p2 = getCleanHandle(parts[1]);
+                    String p1 = normalizeHandle(parts[0]);
+                    String p2 = normalizeHandle(parts[1]);
 
-                    boolean match1 = !h1.isEmpty() && (p1.equals(h1) || p2.equals(h1) || p1.contains(h1) || h1.contains(p1) || p2.contains(h1) || h1.contains(p2));
-                    boolean match2 = !h2.isEmpty() && (p1.equals(h2) || p2.equals(h2) || p1.contains(h2) || h2.contains(p1) || p2.contains(h2) || h2.contains(p2));
-
-                    return match1 || match2;
+                    return isParticipantMatch(p1, p2, userEmail, userName);
                 })
                 .sorted(Comparator.comparing(ChatMessage::getSentAt).reversed())
                 .collect(Collectors.toList());
@@ -129,19 +174,20 @@ public class SimpleChatController {
 
     /**
      * POST /api/v1/chat-messages
-     * Body: { threadKey, senderName, text }
+     * Body: { threadKey, senderName, senderEmail, text }
      */
     @PostMapping
     public ResponseEntity<ChatMessage> sendMessage(@RequestBody Map<String, String> body) {
         String threadKey = body.get("threadKey");
         String senderName = body.get("senderName");
+        String senderEmail = body.get("senderEmail");
         String text = body.get("text");
 
         if (threadKey == null || senderName == null || text == null || text.isBlank()) {
             return ResponseEntity.badRequest().build();
         }
 
-        ChatMessage msg = new ChatMessage(threadKey, senderName, text);
+        ChatMessage msg = new ChatMessage(threadKey, senderName, senderEmail, text);
         ChatMessage saved = chatMessageRepository.save(msg);
         return ResponseEntity.ok(saved);
     }
@@ -156,43 +202,54 @@ public class SimpleChatController {
             @RequestParam(required = false) String user1,
             @RequestParam(required = false) String user2) {
 
-        String u1Clean = getCleanHandle(user1);
-        String u2Clean = getCleanHandle(user2);
+        String u1Norm = normalizeHandle(user1);
+        String u2Norm = normalizeHandle(user2);
 
-        if ((u1Clean.isEmpty() || u2Clean.isEmpty()) && threadKey != null && threadKey.contains("<->")) {
+        if ((u1Norm.isEmpty() || u2Norm.isEmpty()) && threadKey != null && threadKey.contains("<->")) {
             String raw = threadKey.contains("::") ? threadKey.split("::")[0] : threadKey;
             String[] parts = raw.split("<->", 2);
             if (parts.length >= 2) {
-                if (u1Clean.isEmpty()) u1Clean = getCleanHandle(parts[0]);
-                if (u2Clean.isEmpty()) u2Clean = getCleanHandle(parts[1]);
+                if (u1Norm.isEmpty()) u1Norm = normalizeHandle(parts[0]);
+                if (u2Norm.isEmpty()) u2Norm = normalizeHandle(parts[1]);
             }
         }
 
-        if (u1Clean.isEmpty() || u2Clean.isEmpty()) {
+        if (u1Norm.isEmpty() || u2Norm.isEmpty()) {
             return ResponseEntity.badRequest().body(Map.of("deleted", 0, "error", "Invalid users"));
         }
 
-        final String targetU1 = u1Clean;
-        final String targetU2 = u2Clean;
+        final String targetU1 = u1Norm;
+        final String targetU2 = u2Norm;
 
         List<ChatMessage> all = chatMessageRepository.findAll();
         List<ChatMessage> toDelete = all.stream()
                 .filter(m -> {
                     if (m.getThreadKey() == null) return false;
-                    String tk = m.getThreadKey().toLowerCase();
+                    String tk = m.getThreadKey().toLowerCase().trim();
                     String raw = tk.contains("::") ? tk.split("::")[0] : tk;
                     String[] parts = raw.split("<->", 2);
                     if (parts.length < 2) return false;
 
-                    String p1 = getCleanHandle(parts[0]);
-                    String p2 = getCleanHandle(parts[1]);
+                    String p1 = normalizeHandle(parts[0]);
+                    String p2 = normalizeHandle(parts[1]);
 
-                    boolean direct = (p1.equals(targetU1) || p1.contains(targetU1) || targetU1.contains(p1)) &&
-                                     (p2.equals(targetU2) || p2.contains(targetU2) || targetU2.contains(p2));
-                    boolean reverse = (p1.equals(targetU2) || p1.contains(targetU2) || targetU2.contains(p1)) &&
-                                      (p2.equals(targetU1) || p2.contains(targetU1) || targetU1.contains(p2));
+                    boolean direct = p1.equalsIgnoreCase(targetU1) && p2.equalsIgnoreCase(targetU2);
+                    boolean reverse = p1.equalsIgnoreCase(targetU2) && p2.equalsIgnoreCase(targetU1);
+                    if (direct || reverse) return true;
 
-                    return direct || reverse;
+                    // If neither target nor message participants contain @, allow legacy handle matching
+                    if (!targetU1.contains("@") && !targetU2.contains("@") && !p1.contains("@") && !p2.contains("@")) {
+                        String p1Clean = getCleanHandle(p1);
+                        String p2Clean = getCleanHandle(p2);
+                        String u1Clean = getCleanHandle(targetU1);
+                        String u2Clean = getCleanHandle(targetU2);
+                        boolean legDirect = (p1Clean.equals(u1Clean) || p1Clean.contains(u1Clean) || u1Clean.contains(p1Clean)) &&
+                                            (p2Clean.equals(u2Clean) || p2Clean.contains(u2Clean) || u2Clean.contains(p2Clean));
+                        boolean legReverse = (p1Clean.equals(u2Clean) || p1Clean.contains(u2Clean) || u2Clean.contains(p1Clean)) &&
+                                             (p2Clean.equals(u1Clean) || p2Clean.contains(u1Clean) || u1Clean.contains(p2Clean));
+                        return legDirect || legReverse;
+                    }
+                    return false;
                 })
                 .collect(Collectors.toList());
 

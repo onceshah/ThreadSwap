@@ -312,12 +312,12 @@ export async function fetchChatMessagesBackend(threadKey: string, user1?: string
   }
 }
 
-export async function sendChatMessageBackend(threadKey: string, senderName: string, text: string) {
+export async function sendChatMessageBackend(threadKey: string, senderName: string, text: string, senderEmail?: string) {
   try {
     const res = await fetch(`${API_BASE_URL}/chat-messages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ threadKey, senderName, text })
+      body: JSON.stringify({ threadKey, senderName, senderEmail, text })
     });
     if (!res.ok) throw new Error('Failed to send message');
     return await res.json();
@@ -353,8 +353,14 @@ export function getCleanUserHandle(str?: string | null): string {
 }
 
 export function buildThreadKey(user1Str: string, user2Str: string): string {
-  const u1 = getCleanUserHandle(user1Str);
-  const u2 = getCleanUserHandle(user2Str);
+  const norm = (s?: string | null) => {
+    if (!s) return 'guest';
+    const t = s.trim().toLowerCase();
+    if (t.includes('@')) return t;
+    return getCleanUserHandle(t);
+  };
+  const u1 = norm(user1Str);
+  const u2 = norm(user2Str);
   const sortedUsers = [u1, u2].sort();
   return `${sortedUsers[0]}<->${sortedUsers[1]}`;
 }
